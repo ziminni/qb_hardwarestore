@@ -30,6 +30,7 @@ class _CapturingInventoryRepository extends FakeInventoryRepository {
     required double quantity,
     String remarks = '',
     int? locationId,
+    int? variantUomId,
   }) async {
     recorded.add((
       variantId: variantId,

@@ -31,11 +31,13 @@ class InventoryRepository {
     required double quantity,
     String remarks = '',
     int? locationId,
+    int? variantUomId,
   }) => service.createAdjustment(
     variantId: variantId,
     type: type,
     quantity: quantity,
     remarks: remarks,
     locationId: locationId,
+    variantUomId: variantUomId,
   );
 }

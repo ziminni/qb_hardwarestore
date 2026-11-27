@@ -4,6 +4,8 @@
 // 150 m roll as 149.99 m.
 
 import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 PosCatalogItem _item({
@@ -50,5 +52,44 @@ void main() {
     final box = _item(unit: 'BOX', factor: 12, baseStock: 36);
     expect(box.availableSaleQuantity, 3);
     expect(box.isMeasured, isFalse);
+  });
+
+  group('the quantity dialog for a kilo card', () {
+    final kilo = _item(
+      unit: 'KG',
+      factor: 0.025,
+      baseStock: 9.75,
+      measurePerBase: 40,
+    );
+
+    Future<void> pump(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PosSaleQuantityDialog(product: kilo, options: [kilo]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    String typed(WidgetTester tester) =>
+        tester.widget<TextFormField>(find.byType(TextFormField)).controller!.text;
+
+    testWidgets('accepts 7.5 kg', (tester) async {
+      await pump(tester);
+      await tester.enterText(find.byType(TextFormField), '7.5');
+      await tester.pumpAndSettle();
+      expect(typed(tester), '7.5');
+      expect(find.text('Enter a valid quantity'), findsNothing);
+    });
+
+    testWidgets('refuses a third decimal (7.555 kg)', (tester) async {
+      await pump(tester);
+      await tester.enterText(find.byType(TextFormField), '7.55');
+      await tester.enterText(find.byType(TextFormField), '7.555');
+      await tester.pumpAndSettle();
+      expect(typed(tester), '7.55');
+    });
   });
 }

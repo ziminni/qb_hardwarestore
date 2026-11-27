@@ -6,6 +6,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/stock_on_hand.dart';
 import 'package:client/data/models/storage_location.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/features/inventory/viewmodels/inventory_viewmodel.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/status_badge.dart';
@@ -17,7 +18,11 @@ class InventoryAdjustStockResult {
     required this.reason,
     required this.notes,
     this.locationId,
+    this.variantUomId,
   });
+
+  /// The new count, in the unit the clerk counted in ([variantUomId]'s unit,
+  /// or the base unit when that is null).
   final double quantity;
   final String reason;
   final String notes;
@@ -25,6 +30,10 @@ class InventoryAdjustStockResult {
   /// The shelf this count belongs to (Phase 9 F2, decision 21 §8). Null means
   /// the product's home shelf, which is the server's own default.
   final int? locationId;
+
+  /// Sell by measure: the kilo/metre unit the count was typed in. Null means
+  /// the base unit, as before.
+  final int? variantUomId;
 }
 
 /// Count stock: the system's figure, the counted one, and the difference.
@@ -73,6 +82,24 @@ class _InventoryAdjustStockDialogState
   /// server's `is_home` row), which is also what an omitted `location` means.
   int? _locationId;
 
+  /// Sell by measure: the kilo/metre unit being counted in, or null for the
+  /// base unit (bags, rolls).
+  VariantUom? _countUnit;
+
+  /// Base units to counted units: 40 when counting a 40 kg bag in KG.
+  double get _scale => _countUnit?.measurePerBase ?? 1;
+
+  /// The system figure in the counted unit, to 0.01 like the server's input.
+  double get _systemInUnit =>
+      (_systemQuantity * _scale * 100).roundToDouble() / 100;
+
+  void _selectCountUnit(VariantUom? unit) {
+    setState(() {
+      _countUnit = unit;
+      _quantity.text = _plainQuantity(_systemInUnit);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -114,7 +141,7 @@ class _InventoryAdjustStockDialogState
   void _selectLocation(int? locationId) {
     setState(() {
       _locationId = locationId;
-      _quantity.text = _plainQuantity(_systemQuantity);
+      _quantity.text = _plainQuantity(_systemInUnit);
     });
   }
 
@@ -127,9 +154,11 @@ class _InventoryAdjustStockDialogState
 
   @override
   Widget build(BuildContext context) {
-    final quantity = double.tryParse(_quantity.text) ?? _systemQuantity;
-    final difference = quantity - _systemQuantity;
-    final unit = widget.variant.baseUomCode;
+    final system = _systemInUnit;
+    final quantity = double.tryParse(_quantity.text) ?? system;
+    final difference = quantity - system;
+    final unit = _countUnit?.uomCode ?? widget.variant.baseUomCode;
+    final measured = widget.variant.measuredUnit;
     // An inactive shelf may only LOSE stock (decision 21 §8/§11): the server
     // refuses an addition there, so the dialog says why instead of letting the
     // press become a 400.
@@ -150,7 +179,7 @@ class _InventoryAdjustStockDialogState
                 Expanded(
                   child: _QuantityBox(
                     label: 'System quantity',
-                    value: formatQuantity(_systemQuantity),
+                    value: formatQuantity(system),
                     unit: unit,
                   ),
                 ),
@@ -178,6 +207,32 @@ class _InventoryAdjustStockDialogState
             ),
             const SizedBox(height: AppSpacing.xl),
             const DialogSectionLabel('Adjustment'),
+            // Sell by measure: an opened bag is easier to count in kilos.
+            if (measured != null) ...[
+              SegmentedButton<int>(
+                key: const Key('adjust-unit'),
+                segments: [
+                  ButtonSegment(
+                    value: 0,
+                    label: Text(
+                      'Count in ${widget.variant.baseUomCode}',
+                      key: const Key('adjust-unit-base'),
+                    ),
+                  ),
+                  ButtonSegment(
+                    value: measured.id,
+                    label: Text(
+                      'Count in ${measured.uomCode}',
+                      key: Key('adjust-unit-${measured.id}'),
+                    ),
+                  ),
+                ],
+                selected: {_countUnit?.id ?? 0},
+                onSelectionChanged: (values) =>
+                    _selectCountUnit(values.first == 0 ? null : measured),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             // Phase 9 F2 (decision 21 §8): WHICH shelf this count is about. Only
             // offered when the shop has more than one shelf to choose between.
             if (widget.locations.length > 1) ...[
@@ -215,7 +270,10 @@ class _InventoryAdjustStockDialogState
                 if (parsed == null || parsed < 0) {
                   return 'Enter a valid non-negative quantity.';
                 }
-                if (inactive && parsed > _systemQuantity) {
+                if (RegExp(r'\.\d{3,}').hasMatch(value!)) {
+                  return 'Use at most two decimal places.';
+                }
+                if (inactive && parsed > system) {
                   return '${_location!.name} is deactivated: stock can only be '
                       'removed there.';
                 }
@@ -267,6 +325,7 @@ class _InventoryAdjustStockDialogState
                 // Only a shelf with a real id travels: a dialog opened without
                 // the location list sends none, and the server uses home.
                 locationId: _location?.id,
+                variantUomId: _countUnit?.id,
               ),
             );
           },

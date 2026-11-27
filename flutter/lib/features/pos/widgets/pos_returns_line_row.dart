@@ -126,7 +126,7 @@ class _PosReturnsLineRowState extends State<PosReturnsLineRow> {
                 key: ValueKey('return-qty-input-${line.variantUomId}'),
                 controller: _controller,
                 focusNode: _focusNode,
-                inputFormatters: decimalInputFormatters(maxDecimals: 3),
+                inputFormatters: decimalInputFormatters(maxDecimals: 2),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),

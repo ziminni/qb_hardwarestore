@@ -812,18 +812,29 @@ class InventoryViewmodel extends ChangeNotifier {
     required String reason,
     required String notes,
     int? locationId,
+    int? variantUomId,
   }) async {
     // Phase 9 F2 (decision 21 §8): an adjustment applies to ONE shelf, so the
     // delta is counted from THAT shelf's stock, not the shop total. Null means
     // the product's home shelf — the server's own default.
-    final previous = locationId == null
+    final previousBase = locationId == null
         ? stockOnHandFor(variantId)
         : _stockAt(variantId, locationId);
+    // Sell by measure: a count typed in KG compares against the kilos on hand
+    // and travels in KG with its unit; the server divides by the kilos per bag.
+    final perBase = variantUomId == null
+        ? null
+        : _measurePerBaseFor(variantId, variantUomId);
+    final previous = perBase == null
+        ? previousBase
+        : (previousBase * perBase * 100).roundToDouble() / 100;
     // A caller can hand us a negative "new quantity" even though the dialog
     // validates >= 0. Clamp it: otherwise the adjustment asks the server to
     // remove more than exists.
     final target = newQuantity < 0 ? 0.0 : newQuantity;
-    final delta = target - previous;
+    final delta = perBase == null
+        ? target - previous
+        : ((target - previous) * 100).roundToDouble() / 100;
     if (delta == 0) return true;
 
     final trimmed = notes.trim();
@@ -833,6 +844,7 @@ class InventoryViewmodel extends ChangeNotifier {
         type: _serverTypeFor(reason),
         quantity: delta,
         locationId: locationId,
+        variantUomId: perBase == null ? null : variantUomId,
         // A colon, not a dash (D18): the server stores this string verbatim and
         // the dashboard and Stock adjustments page print it back to the user.
         // Nothing parses it, so the separator is free to change.
@@ -845,6 +857,15 @@ class InventoryViewmodel extends ChangeNotifier {
     }
     await load();
     return true;
+  }
+
+  /// The kilos per bag of [variantUomId] when it is [variantId]'s measured
+  /// unit; null otherwise, and the count is then in base units.
+  double? _measurePerBaseFor(int variantId, int variantUomId) {
+    for (final unit in variantFor(variantId)?.sellingUoms ?? const []) {
+      if (unit.id == variantUomId) return unit.measurePerBase;
+    }
+    return null;
   }
 
   /// How much of [variantId] sits on ONE shelf. Zero when the server lists no

@@ -148,6 +148,20 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
   bool _alsoSoldAsPack = false;
   bool _packIsSmaller = false;
 
+  /// Sell loose (add only): halves/quarters ticked, each with its own price.
+  final Set<int> _looseParts = {};
+  final Map<int, TextEditingController> _loosePartPrice = {
+    2: TextEditingController(),
+    4: TextEditingController(),
+  };
+
+  /// Sell loose by weight or length: the kilo/metre unit, how many one base
+  /// unit holds, and its price.
+  bool _looseMeasure = false;
+  int? _looseMeasureUomId;
+  final _loosePerBase = TextEditingController();
+  final _looseMeasurePrice = TextEditingController();
+
   /// The product's STORED photo URL (the server's, or a legacy one). Never a path
   /// this device invented.
   late String _imageUrl;
@@ -320,6 +334,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       _packFactorController,
       _packPriceController,
       _packBarcodeController,
+      ..._loosePartPrice.values,
+      _loosePerBase,
+      _looseMeasurePrice,
     ]) {
       controller.dispose();
     }
@@ -686,6 +703,9 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                   sellingPrice: packPrice,
                   barcodeQr: packBarcode,
                 ),
+              // Sell loose: posted after the create to their own endpoints;
+              // a refusal there is a partial create the screen names.
+              if (!normalizeToSmaller && _sellLooseShown) ..._looseUnits(),
             ],
             openingQty: resolvedOpeningQty,
             openingUnitCost: resolvedOpeningCost,
@@ -1015,6 +1035,147 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
         ],
       ),
       if (unit != null) _fractionSwitch(unit),
+      if (unit != null && _sellLooseShown) ..._sellLooseSection(unit),
+    ];
+  }
+
+  /// Sell loose is offered on a NEW product whose base unit is counted whole
+  /// (a bag, a roll), and not while the base is being swapped for a smaller
+  /// pack unit.
+  bool get _sellLooseShown {
+    final unit = _shownBaseUnit;
+    return !_editing &&
+        unit != null &&
+        unit.isWhole &&
+        !(_alsoSoldAsPack && _packIsSmaller);
+  }
+
+  /// Units that can be any amount (KG, M), other than the base.
+  List<UnitOfMeasure> get _looseMeasureUnits => [
+    for (final unit in _units)
+      if (!unit.isWhole && unit.id != _baseUomId) unit,
+  ];
+
+  List<NewSellingUnit> _looseUnits() {
+    const codes = {2: 'HALF', 4: 'QTR'};
+    final measureUnit = _unitWithId(_looseMeasureUomId);
+    return [
+      for (final parts in [2, 4])
+        if (_looseParts.contains(parts))
+          NewSellingUnit(
+            uomId: 0,
+            uomCode: codes[parts]!,
+            conversionFactor: 1 / parts,
+            parts: parts,
+            sellingPrice: _num(_loosePartPrice[parts]!),
+          ),
+      if (_looseMeasure && measureUnit != null)
+        NewSellingUnit(
+          uomId: measureUnit.id,
+          uomCode: measureUnit.code,
+          conversionFactor: 1 / double.parse(_loosePerBase.text.trim()),
+          measurePerBase: double.parse(_loosePerBase.text.trim()),
+          sellingPrice: _num(_looseMeasurePrice),
+        ),
+    ];
+  }
+
+  /// "Sell loose": ½, ¼ and By weight or length, each ticked on its own.
+  List<Widget> _sellLooseSection(UnitOfMeasure unit) {
+    final code = unit.code;
+    final measureUnits = _looseMeasureUnits;
+    final measureCode = _unitWithId(_looseMeasureUomId)?.code ?? 'unit';
+    const symbols = {2: '½', 4: '¼'};
+    return [
+      const SizedBox(height: AppSpacing.md),
+      Text(
+        'Sell loose',
+        key: const ValueKey('sell-loose'),
+        style: Theme.of(context).textTheme.titleSmall,
+      ),
+      Text(
+        'Sold from an opened $code as well? Stock stays counted in $code.',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      for (final parts in [2, 4]) ...[
+        CheckboxListTile(
+          key: ValueKey('sell-loose-$parts'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: Text('${symbols[parts]} $code'),
+          value: _looseParts.contains(parts),
+          onChanged: (on) => setState(
+            () => on == true
+                ? _looseParts.add(parts)
+                : _looseParts.remove(parts),
+          ),
+        ),
+        if (_looseParts.contains(parts))
+          TextFormField(
+            key: ValueKey('sell-loose-price-$parts'),
+            controller: _loosePartPrice[parts],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [_decimalFormatter],
+            decoration: InputDecoration(
+              labelText: 'Selling price per ${symbols[parts]} $code',
+              prefixText: '₱ ',
+            ),
+            validator: sellingUnitPriceError,
+          ),
+      ],
+      CheckboxListTile(
+        key: const ValueKey('sell-loose-measure'),
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text('By weight or length (any amount)'),
+        subtitle: measureUnits.isEmpty
+            ? const Text('Add a unit such as KG or M first.')
+            : null,
+        value: _looseMeasure,
+        onChanged: measureUnits.isEmpty
+            ? null
+            : (on) => setState(() {
+                _looseMeasure = on == true;
+                _looseMeasureUomId ??= measureUnits.first.id;
+              }),
+      ),
+      if (_looseMeasure && measureUnits.isNotEmpty) ...[
+        DropdownButtonFormField<int>(
+          key: const ValueKey('sell-loose-measure-unit'),
+          isExpanded: true,
+          initialValue: _looseMeasureUomId,
+          decoration: const InputDecoration(labelText: 'Sold by'),
+          items: [
+            for (final option in measureUnits)
+              DropdownMenuItem(value: option.id, child: Text(option.label)),
+          ],
+          onChanged: (value) => setState(() => _looseMeasureUomId = value),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        TextFormField(
+          key: const ValueKey('sell-loose-per-base'),
+          controller: _loosePerBase,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [_decimalFormatter],
+          decoration: InputDecoration(
+            labelText: '$measureCode in one $code',
+            helperText: 'e.g. 40 kg in a bag, 150 m in a roll',
+          ),
+          validator: (raw) => measurePerBaseError(raw, baseCode: code),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        TextFormField(
+          key: const ValueKey('sell-loose-measure-price'),
+          controller: _looseMeasurePrice,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [_decimalFormatter],
+          decoration: InputDecoration(
+            labelText: 'Selling price per $measureCode',
+            prefixText: '₱ ',
+          ),
+          validator: sellingUnitPriceError,
+        ),
+      ],
     ];
   }
 
@@ -1034,6 +1195,8 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
       subtitle = unit.isWhole
           ? 'Keep this off for indivisible items such as hammers. '
                 '${unit.code} is always sold in whole numbers.'
+                '${_sellLooseShown ? ' Selling by the half ${unit.code.toLowerCase()}, '
+                          'the kilo or the metre? Use Sell loose below.' : ''}'
           : '${unit.code} can be sold in parts, such as 0.5 ${unit.code}.';
     } else {
       subtitle = unit.isWhole

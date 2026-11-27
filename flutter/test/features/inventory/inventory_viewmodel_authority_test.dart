@@ -152,6 +152,7 @@ class _FakeInventoryRepository extends InventoryRepository {
     required double quantity,
     String remarks = '',
     int? locationId,
+    int? variantUomId,
   }) async {
     final failure = error;
     if (failure != null) throw failure;
