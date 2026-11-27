@@ -46,7 +46,10 @@ class _StubRequisitions extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     return ReleaseResult(
       transactionId: 42,
       transactionNo: 'TXN-20261114-0042',

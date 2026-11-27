@@ -73,7 +73,10 @@ class _Repository extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     releases++;
     return const ReleaseResult(
       transactionId: 42,

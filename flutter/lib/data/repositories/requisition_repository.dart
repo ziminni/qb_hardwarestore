@@ -36,5 +36,8 @@ class RequisitionRepository {
   Future<TokenVerification> verifyToken(String token) =>
       _service.verifyToken(token);
 
-  Future<ReleaseResult> release(String token) => _service.release(token);
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) => _service.release(token, quantities: quantities);
 }

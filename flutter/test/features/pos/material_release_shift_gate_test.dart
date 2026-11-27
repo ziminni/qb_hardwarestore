@@ -55,7 +55,10 @@ class _StubRequisitions extends RequisitionRepository {
       );
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     if (failRelease != null) throw failRelease!;
     released.add(token);
     return const ReleaseResult(

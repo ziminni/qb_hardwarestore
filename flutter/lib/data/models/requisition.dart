@@ -272,6 +272,9 @@ class VerifiedRequisitionItem {
     required this.releasable,
     this.available,
     this.declineReason = '',
+    this.unit = '',
+    this.isWhole = true,
+    this.unitPrice = 0,
   });
 
   final int id;
@@ -289,6 +292,19 @@ class VerifiedRequisitionItem {
 
   /// Why the store will not serve the line. Empty when [available] is not false.
   final String declineReason;
+
+  /// The line's selling unit (`BAG`, `KG`); empty from an older server.
+  final String unit;
+
+  /// Whole units take whole numbers only. True when an older server is silent, the
+  /// safe reading: a bag is never split by mistake.
+  final bool isWhole;
+
+  /// The unit's selling price, for the "Giving today" estimate. 0 when absent.
+  final double unitPrice;
+
+  /// What earlier visits already handed over.
+  double get given => quantity - remaining;
 
   /// True when this line hands something over today.
   ///
@@ -332,6 +348,11 @@ class VerifiedRequisitionItem {
             : decimalField(json, 'releasable'),
         available: _nullableBool(json, 'available'),
         declineReason: _optionalString(json, 'decline_reason'),
+        unit: _optionalString(json, 'unit'),
+        isWhole: json['is_whole'] is bool ? json['is_whole'] as bool : true,
+        unitPrice: json['unit_price'] == null
+            ? 0
+            : decimalField(json, 'unit_price'),
       );
 }
 
@@ -348,6 +369,7 @@ class TokenVerification {
     required this.project,
     required this.customer,
     required this.items,
+    this.status = '',
   });
 
   final String token;
@@ -357,6 +379,9 @@ class TokenVerification {
   final String customer;
   final List<VerifiedRequisitionItem> items;
 
+  /// The request's status (`ACCEPTED`, `PARTIAL`); empty from an older server.
+  final String status;
+
   static TokenVerification fromJson(Map<String, dynamic> json) {
     final req = (json['requisition'] as Map<String, dynamic>?) ?? const {};
     return TokenVerification(
@@ -365,6 +390,7 @@ class TokenVerification {
       reqNumber: stringField(req, 'req_number'),
       project: stringField(req, 'project'),
       customer: stringField(req, 'customer'),
+      status: _optionalString(req, 'status'),
       items: ((json['items'] as List?) ?? const [])
           .map(
             (row) =>
