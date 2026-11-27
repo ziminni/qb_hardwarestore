@@ -1,5 +1,26 @@
+import 'package:client/core/format/format.dart' as format;
 import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/sale_discount.dart';
+
+/// The stock line of a BASE-unit card whose variant is also sold by the kilo or
+/// metre: `2 BAG + 32.5 KG` instead of `2.813 BAG`. Null for any other card.
+String? posMeasuredStockLabel(
+  PosCatalogItem card,
+  List<PosCatalogItem> options,
+) {
+  if (card.isMeasured || card.conversionFactor != 1) return null;
+  for (final option in options) {
+    if (option.variantId == card.variantId && option.isMeasured) {
+      return format.measuredStockLabel(
+        card.availableBaseStock,
+        card.unit,
+        option.unit,
+        option.measurePerBase!,
+      );
+    }
+  }
+  return null;
+}
 
 class PosCatalogItem {
   const PosCatalogItem({

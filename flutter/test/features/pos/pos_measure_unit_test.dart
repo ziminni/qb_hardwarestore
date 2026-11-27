@@ -4,6 +4,7 @@
 // 150 m roll as 149.99 m.
 
 import 'package:client/data/models/pos_transaction.dart';
+import 'package:client/features/pos/widgets/pos_product_browser.dart';
 import 'package:client/features/pos/widgets/pos_sale_quantity_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,46 @@ void main() {
     expect(box.isMeasured, isFalse);
   });
 
+  group('the bag card of a variant also sold by the kilo', () {
+    final bag = _item(unit: 'BAG', factor: 1, baseStock: 2.8125);
+    final kilo = _item(
+      unit: 'KG',
+      factor: 0.025,
+      baseStock: 2.8125,
+      measurePerBase: 40,
+    );
+
+    test('reads 2.8125 bags as 2 BAG + 32.5 KG', () {
+      expect(posMeasuredStockLabel(bag, [bag, kilo]), '2 BAG + 32.5 KG');
+    });
+
+    test('is null without a measured unit, or on the kilo card itself', () {
+      expect(posMeasuredStockLabel(bag, [bag]), isNull);
+      expect(posMeasuredStockLabel(kilo, [bag, kilo]), isNull);
+    });
+
+    testWidgets('the till card shows it instead of 2.813 bag', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PosProductBrowser(
+              products: [bag],
+              onSearch: (_) {},
+              onSelect: (_) {},
+              searchController: TextEditingController(),
+              searchFocusNode: FocusNode(),
+              onSubmitted: (_) {},
+              stockLabelFor: (item) => posMeasuredStockLabel(item, [bag, kilo]),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('2 BAG + 32.5 KG in stock'), findsOneWidget);
+      expect(find.textContaining('2.813'), findsNothing);
+    });
+  });
+
   group('the quantity dialog for a kilo card', () {
     final kilo = _item(
       unit: 'KG',
@@ -73,8 +114,10 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    String typed(WidgetTester tester) =>
-        tester.widget<TextFormField>(find.byType(TextFormField)).controller!.text;
+    String typed(WidgetTester tester) => tester
+        .widget<TextFormField>(find.byType(TextFormField))
+        .controller!
+        .text;
 
     testWidgets('accepts 7.5 kg', (tester) async {
       await pump(tester);

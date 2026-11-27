@@ -21,9 +21,14 @@ class PosProductBrowser extends StatefulWidget {
     this.categories = const [],
     this.selectedCategory,
     this.onCategorySelected,
+    this.stockLabelFor,
   });
 
   final List<PosCatalogItem> products;
+
+  /// Overrides a card's stock amount (`2 BAG + 32.5 KG` for a bag also sold
+  /// by the kilo); null keeps the plain amount.
+  final String? Function(PosCatalogItem)? stockLabelFor;
   final ValueChanged<String> onSearch;
   final ValueChanged<PosCatalogItem> onSelect;
   final TextEditingController searchController;
@@ -190,6 +195,9 @@ class _PosProductBrowserState extends State<PosProductBrowser> {
                           itemCount: visibleProducts.length,
                           itemBuilder: (context, index) => _ProductCard(
                             product: visibleProducts[index],
+                            stockLabel: widget.stockLabelFor?.call(
+                              visibleProducts[index],
+                            ),
                             onAdd: () =>
                                 widget.onSelect(visibleProducts[index]),
                           ),
@@ -322,9 +330,14 @@ class _CategoryChip extends StatelessWidget {
 }
 
 class _ProductCard extends StatelessWidget {
-  const _ProductCard({required this.product, required this.onAdd});
+  const _ProductCard({
+    required this.product,
+    required this.onAdd,
+    this.stockLabel,
+  });
 
   final PosCatalogItem product;
+  final String? stockLabel;
   final VoidCallback onAdd;
 
   @override
@@ -398,6 +411,7 @@ class _ProductCard extends StatelessWidget {
                       quantity: product.availableSaleQuantity,
                       unit: product.unit,
                       isLowStock: product.isLowStock,
+                      amountLabel: stockLabel,
                     ),
                     const SizedBox(height: 8),
                     Text.rich(
@@ -563,10 +577,14 @@ class _StockBadge extends StatelessWidget {
     required this.quantity,
     required this.unit,
     required this.isLowStock,
+    this.amountLabel,
   });
 
   final double quantity;
   final String unit;
+
+  /// Amount and unit already worded (`2 BAG + 32.5 KG`); replaces both.
+  final String? amountLabel;
 
   /// Derived from the server's threshold in base units, not the printed unit.
   final bool isLowStock;
@@ -574,20 +592,20 @@ class _StockBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // One quantity format for the whole app (formatQuantity, D7).
-    final amount = formatQuantity(quantity);
-    final unitLabel = unit.toLowerCase();
+    final amount = amountLabel ?? formatQuantity(quantity);
+    final unitLabel = amountLabel == null ? ' ${unit.toLowerCase()}' : '';
     final (Color text, Color tint, String label) = quantity <= 0
         ? (AppColors.errorText, AppColors.errorTint, 'Out of stock')
         : isLowStock
         ? (
             AppColors.warningText,
             AppColors.warningTint,
-            'Low: $amount $unitLabel left',
+            'Low: $amount$unitLabel left',
           )
         : (
             AppColors.successText,
             AppColors.successTint,
-            '$amount $unitLabel in stock',
+            '$amount$unitLabel in stock',
           );
     return Container(
       constraints: const BoxConstraints(minHeight: 24),
