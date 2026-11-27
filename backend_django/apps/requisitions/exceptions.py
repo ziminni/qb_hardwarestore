@@ -113,6 +113,23 @@ class NothingToRelease(ValueError):
                'out of stock or unavailable. The token stays valid.')
 
 
+class ReleaseQtyTooHigh(ValueError):
+    """A chosen Give now is more than the line can give right now (2026-11-27).
+
+    The shelf moved between the screen's verify and this release (another till sold
+    some, or another line on the same variant took it). Nothing is written; the till
+    reloads the request and shows the new limit. `detail` names the line and its limit.
+    """
+
+    code = 'RELEASE_QTY_TOO_HIGH'
+
+
+class UnknownReleaseLine(ValueError):
+    """A chosen amount names a line that is not on this request, or names one twice."""
+
+    code = 'UNKNOWN_RELEASE_LINE'
+
+
 class TokenTaken(RequestImportRefused):
     """Another requisition already holds this token (decision 02).
 

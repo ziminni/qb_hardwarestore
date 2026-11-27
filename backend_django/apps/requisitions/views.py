@@ -26,6 +26,7 @@ from apps.users.models import AuditLog
 from apps.users.permissions import IsManagerRole, IsPOSRole
 from apps.users.services import audit_request
 
+from .exceptions import UnknownReleaseLine
 from .models import (
     MaterialToken,
     Project,
@@ -39,6 +40,7 @@ from .serializers import (
     RequisitionDeclineSerializer,
     RequisitionItemSerializer,
     RequisitionSerializer,
+    MaterialReleaseSerializer,
     TokenVerifySerializer,
 )
 from .services import (
@@ -289,12 +291,23 @@ def token_verify_view(request):
 def material_release_view(request):
     """Release materials at POS (UC-21 + UC-22).
 
-    Expects { "token": "<uuid>" }.  FIFO-deducts stock, creates
-    SalesTransaction, and posts to CollectiblesLedger.
+    Expects { "token": "<uuid>", "quantities"?: [{"item", "qty"}] }.  FIFO-deducts
+    stock, creates SalesTransaction, and posts to CollectiblesLedger. A line left out
+    of `quantities` gives its full releasable (2026-11-27).
     """
-    serializer = TokenVerifySerializer(data=request.data)
+    serializer = MaterialReleaseSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     token_value = str(serializer.validated_data["token"])
+    rows = serializer.validated_data.get("quantities")
+    chosen = None
+    if rows is not None:
+        chosen = {}
+        for row in rows:
+            if row["item"] in chosen:
+                return _refusal(UnknownReleaseLine(
+                    f"Line {row['item']} is listed twice. Send one amount per line."
+                ))
+            chosen[row["item"]] = row["qty"]
     try:
         # The release and its audit row are one transaction (decision 07). The
         # description names the requisition and the resulting sale by DOCUMENT NUMBER;
@@ -304,6 +317,7 @@ def material_release_view(request):
             result = release_materials(
                 token_value=token_value,
                 cashier=request.user,
+                chosen=chosen,
             )
             # Decision 05: the row tells a partial release from a finished one, so the
             # trail shows a request was deliberately left open.

@@ -49,6 +49,7 @@ from common.quantities import to_base_qty
 from .exceptions import (
     DuplicateMaterial,
     NothingToRelease,
+    ReleaseQtyTooHigh,
     RequestAlreadyReviewed,
     RequestCancelled,
     RequisitionNotReleasable,
@@ -58,6 +59,7 @@ from .exceptions import (
     UnknownPayer,
     UnknownProject,
     UnknownRequest,
+    UnknownReleaseLine,
 )
 from .models import MaterialToken, Project, Requisition, RequisitionItem
 
@@ -183,7 +185,7 @@ def _on_hand_base(variant_ids) -> dict:
     return {row["variant_id"]: row["total"] for row in rows}
 
 
-def _release_plan(requisition) -> list:
+def _release_plan(requisition, chosen: dict | None = None) -> list:
     """Per-line plan for what can leave the store NOW, in line order.
 
     Decision 05: `releasable` is capped by the line's own outstanding quantity and by the
@@ -198,6 +200,11 @@ def _release_plan(requisition) -> list:
     the shared shelf either — it is skipped before the variant's stock is read down, so a
     declined line can never starve an Available line of the same variant. Its `remaining`
     still reports the full historical outstanding.
+
+    2026-11-27: `chosen` maps a line id to the cashier's Give now. A listed line gives
+    exactly that (0 up to its releasable, refused above it); an unlisted line gives its
+    full releasable. The shared shelf is read down by what each line ACTUALLY gives, so
+    lowering the first of two lines on one variant frees stock for the second.
     """
     items = list(
         RequisitionItem.objects.select_related(
@@ -206,6 +213,13 @@ def _release_plan(requisition) -> list:
         .filter(requisition=requisition)
         .order_by("pk")
     )
+    chosen = chosen or {}
+    unknown = set(chosen) - {item.pk for item in items}
+    if unknown:
+        raise UnknownReleaseLine(
+            f"Line(s) {', '.join(str(pk) for pk in sorted(unknown))} are not on "
+            f"request {requisition.req_number}. Reload the request and try again."
+        )
     on_hand = _on_hand_base({item.variant_uom.variant_id for item in items})
     plan = []
     for item in items:
@@ -214,6 +228,11 @@ def _release_plan(requisition) -> list:
         archived = not variant.is_active or not variant.product.is_active
         if item.available is False or archived or remaining <= 0:
             releasable = Decimal("0.00")
+            if chosen.get(item.pk, 0) > 0:
+                raise ReleaseQtyTooHigh(
+                    f"{variant} ({item.variant_uom.uom.code}): nothing can go out on "
+                    "this line. Reload the request."
+                )
         else:
             available = on_hand.get(variant.pk, Decimal(0))
             releasable = releasable_qty(
@@ -223,6 +242,18 @@ def _release_plan(requisition) -> list:
                 measure_per_base=item.variant_uom.measure_per_base,
                 is_whole=item.variant_uom.uom.is_whole,
             )
+            if item.pk in chosen:
+                wanted = chosen[item.pk]
+                what = f"{variant} ({item.variant_uom.uom.code})"
+                refuse_fractional_whole_unit(
+                    is_whole=item.variant_uom.uom.is_whole, qty=wanted, what=what
+                )
+                if wanted > releasable:
+                    raise ReleaseQtyTooHigh(
+                        f"{what}: only {releasable} can go out now, not {wanted}. "
+                        "Stock changed since the request was opened; reload it."
+                    )
+                releasable = wanted.quantize(Decimal("0.01"))
             on_hand[variant.pk] = (
                 available - to_base_qty(item.variant_uom, releasable)
             )
@@ -336,7 +367,7 @@ def _lock_token_and_request(*, requisition_id):
     return token_obj, requisition
 
 
-def release_materials(*, token_value: str, cashier) -> dict:
+def release_materials(*, token_value: str, cashier, chosen: dict | None = None) -> dict:
     """Release what the shelf holds for this token (UC-21 + UC-22, decision 05).
 
     FIFO-deducts stock, creates ONE SalesTransaction (source=REQUISITION) with ONE
@@ -397,9 +428,14 @@ def release_materials(*, token_value: str, cashier) -> dict:
 
         # Decision 05: recomputed UNDER the token lock, so two scans of one token (or
         # two tills holding the same token) cannot promise the same stock twice.
-        plan = _release_plan(req)
+        plan = _release_plan(req, chosen)
         releasing = [line for line in plan if line["releasable"] > 0]
         if not releasing:
+            if chosen:
+                raise NothingToRelease(
+                    "Nothing was chosen to release. Set at least one Give now above 0. "
+                    "The token stays valid."
+                )
             raise NothingToRelease()
 
         txn = SalesTransaction.objects.create(
