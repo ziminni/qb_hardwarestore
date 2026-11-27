@@ -23,6 +23,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 
+from common.fields import QuantityField
+
 
 class BodegaRelease(models.Model):
     """One hand-over at the Bodega against one sale's claim (`BR-YYYYMMDD-NNNN`)."""
@@ -59,9 +61,9 @@ class BodegaReleaseLine(models.Model):
     location = models.ForeignKey(
         "inventory.StorageLocation", on_delete=models.PROTECT, related_name="+"
     )
-    qty = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    qty = QuantityField(
+        max_digits=18,
+        decimal_places=6,
         validators=[MinValueValidator(Decimal("0.01"))],
     )
 
@@ -124,12 +126,12 @@ class BodegaDeliveryLine(models.Model):
     variant = models.ForeignKey(
         "inventory.ProductVariant", on_delete=models.PROTECT, related_name="+"
     )
-    delivered_qty = models.DecimalField(max_digits=12, decimal_places=2)
-    good_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
+    delivered_qty = QuantityField(max_digits=18, decimal_places=6)
+    good_qty = QuantityField(
+        max_digits=18, decimal_places=6, null=True, blank=True
     )
-    damaged_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
+    damaged_qty = QuantityField(
+        max_digits=18, decimal_places=6, null=True, blank=True
     )
     remarks = models.CharField(max_length=255, blank=True, default="")
     # The checker's phone photo of this item as it arrived: proof that it is there

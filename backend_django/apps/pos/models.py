@@ -18,6 +18,7 @@ from django.core.validators import MinValueValidator
 from django.db import IntegrityError, models
 
 from apps.inventory.models import VariantUOM
+from common.fields import QuantityField
 
 
 class Customer(models.Model):
@@ -231,8 +232,8 @@ class SalesItem(models.Model):
     variant_uom = models.ForeignKey(
         "inventory.VariantUOM", on_delete=models.PROTECT, related_name="sales_items"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(0)]
     )
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
@@ -280,7 +281,7 @@ class SalesItemDeduction(models.Model):
     batch = models.ForeignKey(
         "inventory.InventoryBatch", on_delete=models.PROTECT, related_name="+"
     )
-    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    qty = QuantityField(max_digits=18, decimal_places=6)
     # The batch's landed cost PER BASE UNIT when this row was written (cost of goods sold is
     # qty x this). NULL = written before costs were snapshotted: reports must count those
     # as missing cost history, never as zero cost.
@@ -445,7 +446,7 @@ class QuotationItem(models.Model):
     variant_uom = models.ForeignKey(
         VariantUOM, on_delete=models.PROTECT, related_name="+"
     )
-    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    qty = QuantityField(max_digits=18, decimal_places=6)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
 
     class Meta:
@@ -553,13 +554,13 @@ class SalesOrderItem(models.Model):
     variant_uom = models.ForeignKey(
         VariantUOM, on_delete=models.PROTECT, related_name="+"
     )
-    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    qty = QuantityField(max_digits=18, decimal_places=6)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     # Phase 7 B1 (decision 19 #3): what has already been rung into a sale, and what the
     # manager wrote off. B4 adds to the first, B3 moves a remainder into the second; both
     # start at zero so every pre-Phase-7 line reads "nothing fulfilled, nothing cancelled".
-    fulfilled_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    cancelled_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fulfilled_qty = QuantityField(max_digits=18, decimal_places=6, default=0)
+    cancelled_qty = QuantityField(max_digits=18, decimal_places=6, default=0)
 
     class Meta:
         db_table = "pos_sales_order_item"
@@ -606,7 +607,7 @@ class HeldCartItem(models.Model):
     variant_uom = models.ForeignKey(
         "inventory.VariantUOM", on_delete=models.PROTECT, related_name="+"
     )
-    qty = models.DecimalField(max_digits=12, decimal_places=2)
+    qty = QuantityField(max_digits=18, decimal_places=6)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     # Optional per-line (inline) discount preserved across Hold -> Resume.
     discount_kind = models.CharField(max_length=10, blank=True, default="")

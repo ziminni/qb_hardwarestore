@@ -21,6 +21,7 @@ from apps.inventory.models import (
 from apps.inventory.services import apply_stock_adjustment
 from apps.pos.models import Delivery, SalesItemDeduction, SalesTransaction
 from common.numbering import generate_document_number
+from common.quantities import QTY
 
 from .exceptions import (
     InvalidBodegaDelivery,
@@ -216,9 +217,9 @@ def record_release(*, sale, checker, received_by, plate_no, notes, lines):
             raise InvalidBodegaRelease(
                 "Every released quantity must be more than zero."
             )
-        if qty != qty.quantize(CENT):
+        if qty != qty.quantize(QTY):
             raise InvalidBodegaRelease(
-                f"{qty} has more than two decimal places; stock is kept to 0.01."
+                f"{qty} has more than six decimal places; stock is kept to 0.000001."
             )
         wanted[(variant.pk, location.pk)] += qty
     if not wanted:
@@ -430,9 +431,9 @@ def confirm_delivery(*, delivery_id, checker, lines, notes=""):
                 raise InvalidBodegaDelivery(
                     f"{row.variant}: the {label} quantity cannot be negative."
                 )
-            if qty != qty.quantize(CENT):
+            if qty != qty.quantize(QTY):
                 raise InvalidBodegaDelivery(
-                    f"{qty} has more than two decimal places; stock is kept to 0.01."
+                    f"{qty} has more than six decimal places; stock is kept to 0.000001."
                 )
             if unit.is_whole and qty != qty.to_integral_value():
                 raise InvalidBodegaDelivery(

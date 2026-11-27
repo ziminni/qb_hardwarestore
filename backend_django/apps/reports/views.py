@@ -22,6 +22,7 @@ Endpoints (mounted under /api/v1/reports/):
 from datetime import date, timedelta
 from decimal import Decimal
 from math import ceil
+from types import SimpleNamespace
 
 from django.db.models import (
     Case,
@@ -64,6 +65,7 @@ from apps.pos.models import (
 )
 from apps.requisitions.models import Requisition
 from apps.users.permissions import IsInventoryRole, IsManagerRole
+from common.quantities import base_qty_sql, format_qty, to_base_qty
 
 DEFAULT_RANGE_DAYS = 30
 # Decision 03: dead stock is measured over its own trailing window, 90 days by default.
@@ -300,8 +302,8 @@ def sales_summary_view(request):
     # query serves the daily and the period scope; totals sum it, so the three scopes
     # cannot drift apart.
     qty_base_expr = ExpressionWrapper(
-        F("qty") * F("variant_uom__conversion_factor"),
-        output_field=DecimalField(max_digits=16, decimal_places=4),
+        base_qty_sql("qty", "variant_uom"),
+        output_field=DecimalField(max_digits=24, decimal_places=6),
     )
     qty_base_by_day: dict[date, Decimal] = {
         row["day"]: row["qty_base"] or _ZERO
@@ -549,6 +551,7 @@ def _item_wise_rows(frm: date, to: date) -> list[dict]:
             "variant_uom__variant__variant_name",
             "variant_uom__uom__code",
             "variant_uom__conversion_factor",
+            "variant_uom__measure_per_base",
         )
         .annotate(
             qty_sold=Sum("qty"),
@@ -612,7 +615,17 @@ def _item_wise_rows(frm: date, to: date) -> list[dict]:
                 "variant": row["variant_uom__variant__variant_name"],
                 "uom": row["variant_uom__uom__code"],
                 "qty_sold": _q2(qty_sold),
-                "qty_base": _q2(qty_sold * row["variant_uom__conversion_factor"]),
+                "qty_base": Decimal(
+                    format_qty(
+                        to_base_qty(
+                            SimpleNamespace(
+                                conversion_factor=row["variant_uom__conversion_factor"],
+                                measure_per_base=row["variant_uom__measure_per_base"],
+                            ),
+                            qty_sold,
+                        )
+                    )
+                ),
                 "merchandise_gross": gross,
                 "discounts": discounts,
                 "net_merchandise": net,
@@ -1310,8 +1323,8 @@ def inventory_valuation_view(request):
 def _sales_out_by_day(frm: date, to: date) -> list[dict]:
     """Completed sales in BASE units per day; a return's negative line nets itself out."""
     qty_base = ExpressionWrapper(
-        F("qty") * F("variant_uom__conversion_factor"),
-        output_field=DecimalField(max_digits=16, decimal_places=2),
+        base_qty_sql("qty", "variant_uom"),
+        output_field=DecimalField(max_digits=24, decimal_places=6),
     )
     rows = (
         SalesItem.objects.filter(
@@ -1682,8 +1695,8 @@ def shrinkage_view(request):
         or _ZERO
     )
     qty_base = ExpressionWrapper(
-        F("qty") * F("variant_uom__conversion_factor"),
-        output_field=DecimalField(max_digits=16, decimal_places=2),
+        base_qty_sql("qty", "variant_uom"),
+        output_field=DecimalField(max_digits=24, decimal_places=6),
     )
     sold_before = (
         SalesItem.objects.filter(
@@ -2014,8 +2027,8 @@ def fast_slow_view(request):
     frm, to = _parse_range(request)
 
     qty_base = ExpressionWrapper(
-        F("qty") * F("variant_uom__conversion_factor"),
-        output_field=DecimalField(max_digits=16, decimal_places=2),
+        base_qty_sql("qty", "variant_uom"),
+        output_field=DecimalField(max_digits=24, decimal_places=6),
     )
     sold = list(
         SalesItem.objects.filter(

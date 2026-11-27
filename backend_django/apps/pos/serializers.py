@@ -9,6 +9,8 @@ from rest_framework import serializers
 
 from apps.inventory.services import lock_selling_unit_lines, pick_up_caption
 from common.exceptions import refuse_fractional_whole_unit, refuse_inactive_selling_unit
+from common.quantities import format_qty, to_base_qty
+from common.serializer_fields import QtyDecimalField
 
 from .models import (
     Customer,
@@ -209,7 +211,7 @@ class SalesItemSerializer(serializers.ModelSerializer):
                 "location_name": (
                     row.batch.location.name if row.batch.location_id else ""
                 ),
-                "qty": f"{row.qty:.2f}",
+                "qty": format_qty(row.qty),
                 "unit_cost": (
                     f"{row.unit_cost:.2f}"
                     if row.unit_cost is not None
@@ -240,6 +242,7 @@ class SalesItemSerializer(serializers.ModelSerializer):
             fallback_location_name=self.get_stored_at_name(obj),
             qty=obj.qty,
             conversion_factor=uom.conversion_factor,
+            measure_per_base=uom.measure_per_base,
             selling_unit=uom.uom.code,
             base_unit=uom.variant.base_uom.code,
         )
@@ -598,8 +601,8 @@ class QuotationSerializer(serializers.ModelSerializer):
 class SalesOrderItemSerializer(serializers.ModelSerializer):
     # Phase 7 B1 (decision 19 #3): what has been fulfilled, what was cancelled, and what
     # is left. `remaining_qty` is the MODEL's arithmetic, not a second copy of it.
-    remaining_qty = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True
+    remaining_qty = QtyDecimalField(
+        max_digits=18, decimal_places=6, read_only=True
     )
 
     class Meta:
@@ -718,7 +721,7 @@ class SalesOrderSerializer(serializers.ModelSerializer):
         hints = order_line_available_qty(instance.items.all())
         for row in data["items"]:
             hint = hints.get(row["id"])
-            row["available_qty"] = "0.00" if hint is None else f"{hint:.2f}"
+            row["available_qty"] = "0.00" if hint is None else format_qty(hint)
         return data
 
     def create(self, validated_data):
@@ -996,7 +999,7 @@ class HeldCartSerializer(serializers.ModelSerializer):
             needed_by_variant = {}
             for item in items_data:
                 vuom = item["variant_uom"]
-                base_qty = Decimal(item["qty"]) * vuom.conversion_factor
+                base_qty = to_base_qty(vuom, item["qty"])
                 needed_by_variant[vuom.variant_id] = (
                     needed_by_variant.get(vuom.variant_id, Decimal("0")) + base_qty
                 )
@@ -1104,7 +1107,7 @@ class DeliverySerializer(serializers.ModelSerializer):
             {
                 "name": str(row.variant_uom.variant),
                 "unit": row.variant_uom.uom.code,
-                "qty": f"{row.qty:.2f}",
+                "qty": format_qty(row.qty),
                 "stored_at": stored_at.get(row.variant_uom_id, (None, None))[0],
                 "stored_at_name": stored_at.get(row.variant_uom_id, (None, None))[1],
                 # Phase 9 B2 (decision 21 §2): the driver is told the SPLIT - "3 at
@@ -1120,6 +1123,7 @@ class DeliverySerializer(serializers.ModelSerializer):
                     )[1],
                     qty=row.qty,
                     conversion_factor=row.variant_uom.conversion_factor,
+                    measure_per_base=row.variant_uom.measure_per_base,
                     selling_unit=row.variant_uom.uom.code,
                     base_unit=row.variant_uom.variant.base_uom.code,
                 ),

@@ -27,9 +27,11 @@ from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import StockTransfer, SupplierCreditNote
 from apps.inventory.services import (
     allocate_fifo,
+    measure_tolerance,
     check_low_stock_after_stock_out,
     lock_selling_unit_lines,
 )
+from common.quantities import format_qty, to_base_qty
 from common.exceptions import (
     refuse_fractional_whole_unit,
     refuse_inactive_selling_unit,
@@ -1170,6 +1172,7 @@ def order_line_available_qty(lines):
             available_base=on_hand.get(line.variant_uom.variant_id, Decimal(0)),
             conversion_factor=line.variant_uom.conversion_factor,
             is_whole=line.variant_uom.uom.is_whole,
+            measure_per_base=line.variant_uom.measure_per_base,
         )
         for line in lines
     }
@@ -1595,12 +1598,13 @@ def process_sale(
             # Decision 01: FIFO works in BASE units. Selling 1 box of 12 must remove 12
             # pieces from the shelf while `SalesItem.qty` above keeps the 1 for the
             # receipt - the two numbers answer different questions.
-            base_qty = qty * vuom.conversion_factor
+            base_qty = to_base_qty(vuom, qty)
             # Raises InsufficientStock on short stock → whole sale rolls back.
             allocations = allocate_fifo(
                 variant_id=vuom.variant_id,
                 qty_needed=base_qty,
                 exclude_held_cart_id=exclude_held_cart_id,
+                tolerance=measure_tolerance(vuom),
             )
             # Task 6A.4: persist which batches this item drew from. Without these
             # rows a linked return cannot know "the original batch it left from".
@@ -2845,7 +2849,7 @@ def process_return(
             # box and quietly lose eleven.
             _restock_returned(
                 variant_id=vuom.variant_id,
-                qty_needed=qty * vuom.conversion_factor,
+                qty_needed=to_base_qty(vuom, qty),
                 original_id=original.id if original else None,
                 return_item=item_row,
             )
@@ -3072,7 +3076,7 @@ def process_exchange(
             )
             _restock_returned(
                 variant_id=vuom.variant_id,
-                qty_needed=qty * vuom.conversion_factor,
+                qty_needed=to_base_qty(vuom, qty),
                 original_id=original.id,
                 return_item=item_row,
             )
@@ -3087,8 +3091,12 @@ def process_exchange(
                 unit_price=unit_price,
                 subtotal=qty * unit_price,
             )
-            base_qty = qty * vuom.conversion_factor
-            allocations = allocate_fifo(variant_id=vuom.variant_id, qty_needed=base_qty)
+            base_qty = to_base_qty(vuom, qty)
+            allocations = allocate_fifo(
+                variant_id=vuom.variant_id,
+                qty_needed=base_qty,
+                tolerance=measure_tolerance(vuom),
+            )
             SalesItemDeduction.objects.bulk_create(
                 [
                     SalesItemDeduction(
@@ -3376,7 +3384,7 @@ def void_transaction(*, transaction_id, actor, reason):
         else:
             # Legacy pre-deduction sale: return base qty to newest home/available batch.
             for item in txn.items.select_related("variant_uom__variant__product"):
-                base_qty = item.qty * item.variant_uom.conversion_factor
+                base_qty = to_base_qty(item.variant_uom, item.qty)
                 batch = (
                     InventoryBatch.objects.select_for_update()
                     .filter(variant_id=item.variant_uom.variant_id)

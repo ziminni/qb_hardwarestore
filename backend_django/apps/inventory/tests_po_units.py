@@ -621,8 +621,8 @@ class UnrepresentableStockQuantityTests(PoUnitTestBase):
         self.assertEqual(AuditLog.objects.count(), audit_rows_before)
 
     def test_a_measured_receipt_that_rounds_to_zero_stock_is_refused(self):
-        # 1 DG = 0.01 kg, so receiving 0.01 DG is exactly 0.0001 kg of stock.
-        tiny = self._package("DG", "Decagram", "0.01", "1.00")
+        # 1 MG = 0.000001 kg, so receiving 0.01 MG is 0.00000001 kg of stock.
+        tiny = self._package("MG", "Milligram", "0.000001", "1.00")
         po, item = self._ordered_po(self._line(qty="10", cost="1", variant_uom=tiny.pk))
         audit_rows_before = AuditLog.objects.count()
 
@@ -630,12 +630,12 @@ class UnrepresentableStockQuantityTests(PoUnitTestBase):
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(response.data.get("code"), PRECISION_CODE, response.data)
-        self.assertIn("whole hundredth", response.data.get("detail", ""))
+        self.assertIn("six decimal places", response.data.get("detail", ""))
         self._assert_nothing_stocked(po, item, audit_rows_before)
 
     def test_a_receipt_that_would_mint_stock_is_refused(self):
-        # 0.50 x 0.03 = 0.015 kg: HALF_UP used to stock 0.02 for a 0.015 delivery.
-        odd = self._package("PK03", "Package (0.03 kg)", "0.03", "3.00")
+        # 0.50 x 0.000003 = 0.0000015 kg: HALF_UP would stock 0.000002.
+        odd = self._package("PK03", "Package (0.000003 kg)", "0.000003", "3.00")
         po, item = self._ordered_po(self._line(qty="10", cost="3", variant_uom=odd.pk))
         audit_rows_before = AuditLog.objects.count()
 
@@ -665,7 +665,7 @@ class UnrepresentableStockQuantityTests(PoUnitTestBase):
         self,
     ):
         """The defensive path: a line written straight through the ORM skips the POST."""
-        odd = self._package("PK03", "Package (0.03 kg)", "0.03", "3.00")
+        odd = self._package("PK03", "Package (0.000003 kg)", "0.000003", "3.00")
         po, item = self._ordered_po(self._line(qty="10", cost="3", variant_uom=odd.pk))
         receipt = GoodsReceipt.objects.create(po=po, received_by=self.user)
         GoodsReceiptItem.objects.create(
@@ -692,9 +692,10 @@ class UnrepresentableStockQuantityTests(PoUnitTestBase):
         odd = self._unit(
             other_variant,
             UnitOfMeasure.objects.get_or_create(
-                code="PK03", defaults={"name": "Package (0.03 kg)", "is_whole": False}
+                code="PK03",
+                defaults={"name": "Package (0.000003 kg)", "is_whole": False},
             )[0],
-            "0.03",
+            "0.000003",
             "3.00",
         )
         created = self._create(
@@ -728,7 +729,7 @@ class UnrepresentableStockQuantityTests(PoUnitTestBase):
 
     def test_processing_refuses_an_unrepresentable_legacy_delta(self):
         """No-lines (fixture/`seed_demo`) receipts compare base units; the delta must fit."""
-        odd = self._package("PK03", "Package (0.03 kg)", "0.03", "3.00")
+        odd = self._package("PK03", "Package (0.000003 kg)", "0.000003", "3.00")
         po = PurchaseOrder.objects.create(
             supplier=self.supplier,
             created_by=self.user,

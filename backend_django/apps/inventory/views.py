@@ -730,6 +730,67 @@ class ProductVariantViewSet(_AuditedCatalogViewSet):
             self.get_serializer(refreshed).data, status=status.HTTP_201_CREATED
         )
 
+    @action(detail=True, methods=["post"], url_path="add-measure-unit")
+    def add_measure_unit_action(self, request, pk=None):
+        """`POST /variants/{id}/add-measure-unit/ {uom_id, measure_per_base, price}`.
+
+        Sell by measure: any weight or length of a whole-counted item (3 kg of a
+        40 kg bag, 0.35 m of a 150 m roll), priced per kg/m. Never rebases.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        from .exceptions import InvalidSellingUnit
+        from .models import UnitOfMeasure
+        from .services import add_measure_unit
+
+        try:
+            uom = UnitOfMeasure.objects.get(pk=int(request.data.get("uom_id")))
+            per_base = Decimal(str(request.data.get("measure_per_base", "")))
+            price = Decimal(str(request.data.get("default_selling_price", "")))
+            credit_val = Decimal(
+                str(request.data.get("credit_markup_value", "0") or "0")
+            )
+        except (
+            InvalidOperation,
+            TypeError,
+            ValueError,
+            UnitOfMeasure.DoesNotExist,
+        ) as exc:
+            raise InvalidSellingUnit(
+                "Send the unit, how many of it one base unit holds, and the selling "
+                "price."
+            ) from exc
+        credit_kind = str(request.data.get("credit_markup_kind", "NONE") or "NONE")
+        barcode_qr = str(request.data.get("barcode_qr", "") or "")
+
+        variant = self.get_object()
+        try:
+            with transaction.atomic():
+                unit = add_measure_unit(
+                    variant=variant,
+                    uom=uom,
+                    measure_per_base=per_base,
+                    default_selling_price=price,
+                    barcode_qr=barcode_qr,
+                    credit_markup_kind=credit_kind,
+                    credit_markup_value=credit_val,
+                    user=request.user,
+                )
+                audit_request(
+                    request,
+                    AuditLog.ActionType.UPDATE,
+                    f"{variant} can now be sold by the {uom.code} "
+                    f"({unit.measure_per_base} {uom.code} per {variant.base_uom.code}) "
+                    f"at ₱{unit.default_selling_price} per {uom.code}.",
+                )
+        except IntegrityError as exc:
+            _refuse_lost_barcode_race(exc)
+
+        refreshed = self.get_queryset().get(pk=variant.pk)
+        return Response(
+            self.get_serializer(refreshed).data, status=status.HTTP_201_CREATED
+        )
+
 
 class VariantUOMViewSet(_AuditedCatalogViewSet):
     # `variant__product` is joined because the response explains WHY a scanned unit

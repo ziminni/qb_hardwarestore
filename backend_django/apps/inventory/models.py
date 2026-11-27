@@ -37,6 +37,7 @@ from django.db import IntegrityError, models, transaction
 from django.db.models.functions import Upper
 
 from apps.users.exceptions import ImmutableAuditLog
+from common.fields import QuantityField
 
 # =========================================================================
 # Selling-unit codes  (Phase 6, decisions 11/12/16)
@@ -308,11 +309,11 @@ class ProductVariant(models.Model):
         related_name="+",
         help_text="Smallest divisible unit for stock tracking.",
     )
-    min_stock_threshold = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+    min_stock_threshold = QuantityField(
+        max_digits=18, decimal_places=6, default=0, validators=[MinValueValidator(0)]
     )
-    max_stock_level = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)]
+    max_stock_level = QuantityField(
+        max_digits=18, decimal_places=6, default=0, validators=[MinValueValidator(0)]
     )
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -367,8 +368,19 @@ class VariantUOM(models.Model):
     )
     uom = models.ForeignKey(UnitOfMeasure, on_delete=models.PROTECT, related_name="+")
     barcode_qr = models.CharField(max_length=100, blank=True, default="", db_index=True)
-    conversion_factor = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    conversion_factor = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))]
+    )
+    # Sell by measure: how many of this (fractional) unit one base unit holds, e.g. 40
+    # (kg per bag) or 150 (m per roll). Set only on a measured selling unit; quantities
+    # convert by dividing by it (`common.quantities.to_base_qty`), so 1.5 m of a 150 m
+    # roll is exactly 0.01 roll. `conversion_factor` keeps 1/measure_per_base, rounded.
+    measure_per_base = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("1.01"))],
     )
     default_selling_price = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
@@ -410,7 +422,9 @@ class VariantUOM(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.variant} @ {self.uom.code} (×{self.conversion_factor})"
+        from common.quantities import format_qty
+
+        return f"{self.variant} @ {self.uom.code} (×{format_qty(self.conversion_factor)})"
 
     @property
     def credit_selling_price(self):
@@ -728,15 +742,15 @@ class POItem(models.Model):
         null=True,
         blank=True,
     )
-    ordered_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    ordered_qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.01"))]
     )
     unit_cost = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
     )
-    received_qty = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    received_qty = QuantityField(
+        max_digits=18,
+        decimal_places=6,
         default=0,
         validators=[MinValueValidator(Decimal(0))],
     )
@@ -792,8 +806,8 @@ class GoodsReceiptItem(models.Model):
     po_item = models.ForeignKey(
         POItem, on_delete=models.PROTECT, related_name="receipt_lines"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.01"))]
     )
     # Phase 9 B3 (decision 21, plan Design 7): the shelf THIS line was delivered to, so
     # the batch `process_goods_receipt` mints from it lands there instead of at home.
@@ -862,11 +876,11 @@ class InventoryBatch(models.Model):
         on_delete=models.PROTECT,
         related_name="derived_batches",
     )
-    initial_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    initial_qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal(0))]
     )
-    current_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
+    current_qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal(0))]
     )
     unit_cost_landed = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
@@ -912,7 +926,7 @@ class StockAdjustment(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
     adjustment_type = models.CharField(max_length=15, choices=AdjustmentType.choices)
-    qty_adjusted = models.DecimalField(max_digits=12, decimal_places=2)
+    qty_adjusted = QuantityField(max_digits=18, decimal_places=6)
     remarks = models.TextField(blank=True, default="")
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -1366,11 +1380,11 @@ class SupplierReturnLine(models.Model):
     receipt_line = models.ForeignKey(
         GoodsReceiptItem, on_delete=models.PROTECT, related_name="return_lines"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.01"))]
     )
-    base_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    base_qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))]
     )
     credit_value = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
@@ -1419,8 +1433,8 @@ class SupplierReturnDeduction(models.Model):
     batch = models.ForeignKey(
         InventoryBatch, on_delete=models.PROTECT, related_name="return_deductions"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))]
     )
     unit_cost_landed = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal(0))]
@@ -1657,11 +1671,11 @@ class StockTransferLine(models.Model):
     variant_uom = models.ForeignKey(
         VariantUOM, on_delete=models.PROTECT, related_name="transfer_lines"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.01"))]
     )
-    base_qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    base_qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))]
     )
 
     class Meta:
@@ -1691,8 +1705,8 @@ class StockTransferMove(models.Model):
     dest_batch = models.ForeignKey(
         InventoryBatch, on_delete=models.PROTECT, related_name="transfer_moves_in"
     )
-    qty = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    qty = QuantityField(
+        max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))]
     )
 
     class Meta:

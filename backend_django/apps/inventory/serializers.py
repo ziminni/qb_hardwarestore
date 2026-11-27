@@ -15,6 +15,8 @@ from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from common.exceptions import refuse_fractional_whole_unit
+from common.quantities import to_base_qty
+from common.serializer_fields import QtyDecimalField
 
 from .exceptions import (
     BarcodeInvalid,
@@ -318,7 +320,7 @@ class VariantUOMSerializer(serializers.ModelSerializer):
     product_is_active = serializers.BooleanField(
         source="variant.product.is_active", read_only=True
     )
-    conversion_factor = serializers.DecimalField(max_digits=12, decimal_places=2)
+    conversion_factor = QtyDecimalField(max_digits=18, decimal_places=6)
     default_selling_price = serializers.DecimalField(max_digits=12, decimal_places=2)
     # Owner ruling (utang markup): a unit may cost more when bought on credit. The KIND and
     # the VALUE are writable exactly where the shelf price is - the same inventory roles,
@@ -380,6 +382,8 @@ class VariantUOMSerializer(serializers.ModelSerializer):
             "variant_is_active",
             "barcode_qr",
             "conversion_factor",
+            # Sell by measure: kg per bag / m per roll; set only by add-measure-unit.
+            "measure_per_base",
             "default_selling_price",
             # Owner ruling (utang markup): what credit costs, and what produced it.
             "credit_markup_kind",
@@ -390,7 +394,7 @@ class VariantUOMSerializer(serializers.ModelSerializer):
             "in_use",
             "last_price_changed_at",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "measure_per_base"]
 
     def get_credit_selling_price(self, obj):
         """`obj.credit_selling_price` - the SAME helper the checkout prices with.
@@ -882,10 +886,10 @@ class POItemSerializer(serializers.ModelSerializer):
     variant_name = serializers.CharField(source="variant.variant_name", read_only=True)
     variant_uom = SellingUnitPrimaryKeyField(required=False, allow_null=True)
     uom_code = serializers.CharField(source="variant_uom.uom.code", read_only=True)
-    conversion_factor = serializers.DecimalField(
+    conversion_factor = QtyDecimalField(
         source="variant_uom.conversion_factor",
-        max_digits=12,
-        decimal_places=2,
+        max_digits=18,
+        decimal_places=6,
         read_only=True,
     )
     uom_is_whole = serializers.BooleanField(
@@ -1294,6 +1298,16 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
     # Who made the adjustment, for the history list (it used to show "User 3").
     user_name = serializers.CharField(source="user.full_name", read_only=True)
 
+    # Sell by measure: the unit `qty_adjusted` was typed in (a spill of 0.5 KG of a
+    # bagged item). Optional; omitted means the base unit, as before. The row always
+    # stores BASE units, converted with `to_base_qty`.
+    variant_uom = serializers.PrimaryKeyRelatedField(
+        queryset=VariantUOM.objects.select_related("uom"),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+
     class Meta:
         model = StockAdjustment
         fields = [
@@ -1305,6 +1319,7 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
             "location",
             "adjustment_type",
             "qty_adjusted",
+            "variant_uom",
             "remarks",
             "timestamp",
         ]
@@ -1337,6 +1352,19 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
         # Both fields are read here because `qty_adjusted` alone cannot see the variant.
         variant = attrs.get("variant") or getattr(self.instance, "variant", None)
         qty = attrs.get("qty_adjusted")
+        typed_unit = attrs.pop("variant_uom", None)
+        if typed_unit is not None and variant is not None and qty is not None:
+            if typed_unit.variant_id != variant.pk:
+                raise serializers.ValidationError(
+                    {"variant_uom": f"{typed_unit} is not a unit of {variant}."}
+                )
+            refuse_fractional_whole_unit(
+                is_whole=typed_unit.uom.is_whole,
+                qty=qty,
+                what=f"{variant} in {typed_unit.uom.code}",
+            )
+            attrs["qty_adjusted"] = to_base_qty(typed_unit, qty)
+            return self._refuse_retired_return(attrs)
         if qty is None and self.instance is not None:
             qty = self.instance.qty_adjusted
         if variant is not None and qty is not None:
@@ -1345,6 +1373,9 @@ class StockAdjustmentSerializer(serializers.ModelSerializer):
                 qty=qty,
                 what=f"{variant} in {variant.base_uom.code}",
             )
+        return self._refuse_retired_return(attrs)
+
+    def _refuse_retired_return(self, attrs):
         # Phase 8 B2 (decision 20): the adjustment dialog's "Supplier Return" is retired.
         # It moved stock out through FIFO with no credit note, no record of the receipt
         # the goods came in on and no cap - the three things a supplier return is for.

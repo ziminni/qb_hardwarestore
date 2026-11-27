@@ -23,6 +23,7 @@ from decimal import Decimal
 from django.db import transaction
 
 from common.exceptions import refuse_fractional_whole_unit, refuse_inactive_selling_unit
+from common.quantities import format_qty, to_base_qty
 
 from .exceptions import (
     InsufficientStock,
@@ -39,7 +40,6 @@ from .models import (
 )
 from .services import _check_low_stock, allocate_fifo, lock_selling_unit_lines
 
-CENT = Decimal("0.01")
 
 
 def _resolved_lines(lines):
@@ -71,15 +71,16 @@ def _resolved_lines(lines):
             qty=qty,
             what=f"{qty} × {variant_uom.uom.code} of {variant_uom.variant}",
         )
-        base_qty = qty * variant_uom.conversion_factor
-        if base_qty != base_qty.quantize(CENT):
+        base_qty = to_base_qty(variant_uom, qty)
+        exact = qty * variant_uom.conversion_factor
+        if not variant_uom.measure_per_base and base_qty != exact:
             raise TransferQuantityUnrepresentable(
                 f"Moving {qty} {variant_uom.uom.code} of {variant_uom.variant} (1 "
                 f"{variant_uom.uom.code} = {variant_uom.conversion_factor} "
-                f"{variant_uom.variant.base_uom.code}) is exactly {base_qty} "
-                f"{variant_uom.variant.base_uom.code} of stock, and stock is kept in "
-                "whole hundredths of the base unit: transfer a quantity that converts to "
-                "a whole hundredth (0.01) of the base unit."
+                f"{variant_uom.variant.base_uom.code}) is exactly {exact} "
+                f"{variant_uom.variant.base_uom.code} of stock, and stock is kept to "
+                "six decimal places of the base unit: transfer a quantity that converts "
+                "to at most 0.000001 of the base unit."
             )
         resolved.append((variant_uom, qty, base_qty))
     resolved.sort(key=lambda entry: entry[0].variant_id)
@@ -165,7 +166,7 @@ def record_stock_transfer(
                 # Quantized to the column's scale: `allocate_fifo` subtracts Decimals of
                 # different exponents, so the raw shortfall can read "3.0000" next to a
                 # shelf that counts in hundredths.
-                shortfall = exc.shortfall.quantize(CENT)
+                shortfall = Decimal(format_qty(exc.shortfall))
                 raise InsufficientStock(
                     f"Not enough {variant_uom.variant} at {from_location.name}: "
                     f"{shortfall} {unit} short of the {base_qty} {unit} this line "

@@ -15,6 +15,7 @@ from django.db.models import F, Sum
 from django.utils import timezone
 
 from common.exceptions import refuse_fractional_whole_unit
+from common.quantities import QTY, base_qty_sql, format_qty
 
 from . import payables
 from .exceptions import (
@@ -497,9 +498,9 @@ def add_smaller_unit(
             raise InvalidSellingUnit(
                 f"{variant} already has sales or stock history in "
                 f"{variant.base_uom.code}, so 1 {uom.code} (1/{units_per_base} "
-                f"{variant.base_uom.code}) cannot be stored exactly. Sell it in parts "
-                f"instead (½ or ¼ {variant.base_uom.code}), or add a separate variant "
-                "for this unit."
+                f"{variant.base_uom.code}) cannot be stored exactly. Sell it by weight "
+                f"or length instead (any amount of {uom.code} from a "
+                f"{variant.base_uom.code}), or in parts (½ or ¼ {variant.base_uom.code})."
             )
         new_unit = VariantUOM.objects.create(
             variant=variant,
@@ -655,6 +656,109 @@ def add_part_unit(
     return unit
 
 
+def add_measure_unit(
+    *,
+    variant,
+    uom,
+    measure_per_base: Decimal,
+    default_selling_price: Decimal,
+    barcode_qr: str = "",
+    credit_markup_kind: str = "NONE",
+    credit_markup_value: Decimal = Decimal("0"),
+    user=None,
+):
+    """Sell any weight or length of a whole-counted item (3 kg of a 40 kg bag).
+
+    planning/sell-in-parts/2026-11-27-sell-by-measure-design.md. The unit is an ordinary
+    selling unit of the SAME variant that also stores the exact `measure_per_base`
+    (40 kg per bag, 150 m per roll); `to_base_qty` divides by it, so stock stays counted
+    in the base unit and FIFO books the batch cost of exactly the amount sold. Never
+    rebases, so it works the same with or without sales history.
+    """
+    from .exceptions import BarcodeTaken, InvalidSellingUnit
+    from .models import (
+        ProductVariant,
+        SellingUnitPriceChange,
+        VariantUOM,
+        normalise_barcode,
+    )
+
+    if measure_per_base is None or measure_per_base <= Decimal("1"):
+        raise InvalidSellingUnit(
+            f"Enter how many {uom.code} one base unit holds (more than 1)."
+        )
+    if measure_per_base != measure_per_base.quantize(CENT):
+        raise InvalidSellingUnit(
+            f"Use at most two decimal places for the {uom.code} per base unit."
+        )
+    if default_selling_price is None or default_selling_price < 0:
+        raise InvalidSellingUnit("The selling price cannot be negative.")
+    if credit_markup_kind not in VariantUOM.CreditMarkupKind.values:
+        raise InvalidSellingUnit("Invalid credit_markup_kind.")
+    if credit_markup_value is None or credit_markup_value < 0:
+        raise InvalidSellingUnit("credit_markup_value must not be negative.")
+    if credit_markup_kind == VariantUOM.CreditMarkupKind.NONE:
+        credit_markup_value = Decimal("0")
+
+    variant = (
+        ProductVariant.objects.select_for_update()
+        .select_related("base_uom", "product")
+        .get(pk=variant.pk)
+    )
+    base = variant.base_uom
+    if not base.is_whole:
+        raise InvalidSellingUnit(
+            f"{variant} is already sold in any amount of {base.code}, so it does not "
+            "need a separate weight or length."
+        )
+    if uom.is_whole:
+        raise InvalidSellingUnit(
+            f"{uom.code} is counted in whole numbers. Choose a unit that takes "
+            "fractions, such as KG or M."
+        )
+    if VariantUOM.objects.filter(
+        variant=variant, measure_per_base__isnull=False
+    ).exists():
+        raise InvalidSellingUnit(
+            f"{variant} can already be sold by weight or length. Change that unit's "
+            "price in the price list."
+        )
+    if VariantUOM.objects.filter(variant=variant, uom=uom).exists():
+        raise InvalidSellingUnit(f"{variant} already uses {uom.code}.")
+
+    clean_code = normalise_barcode(barcode_qr)
+    if clean_code:
+        rival = (
+            VariantUOM.objects.filter(barcode_qr__iexact=clean_code)
+            .select_related("variant__product", "uom")
+            .first()
+        )
+        if rival is not None:
+            raise BarcodeTaken(
+                f"Barcode {clean_code} is already assigned to "
+                f"{rival.variant.product.base_name} ({rival.uom.code})."
+            )
+
+    unit = VariantUOM.objects.create(
+        variant=variant,
+        uom=uom,
+        measure_per_base=measure_per_base,
+        conversion_factor=(Decimal("1") / measure_per_base).quantize(QTY),
+        default_selling_price=default_selling_price.quantize(CENT),
+        barcode_qr=clean_code,
+        credit_markup_kind=credit_markup_kind,
+        credit_markup_value=credit_markup_value.quantize(CENT),
+    )
+    SellingUnitPriceChange.record(
+        unit=unit,
+        old_price=None,
+        new_price=unit.default_selling_price,
+        actor=user,
+        source=SellingUnitPriceChange.Source.CATALOGUE,
+    )
+    return unit
+
+
 def line_factor(item: POItem) -> Decimal:
     """How many base units ONE selling unit of this PO line is.
 
@@ -684,7 +788,7 @@ def refuse_unrepresentable_stock(*, item: POItem, qty: Decimal) -> None:
     """
     factor = line_factor(item)
     base_qty = qty * factor
-    if base_qty == base_qty.quantize(CENT):
+    if base_qty == base_qty.quantize(QTY):
         return
     unit_code = (
         item.variant_uom.uom.code if item.variant_uom_id else item.variant.base_uom.code
@@ -692,9 +796,9 @@ def refuse_unrepresentable_stock(*, item: POItem, qty: Decimal) -> None:
     raise ReceiptQuantityUnrepresentable(
         f"Receiving {qty} {unit_code} of {item.variant} (1 {unit_code} = {factor} "
         f"{item.variant.base_uom.code}) is exactly {base_qty} "
-        f"{item.variant.base_uom.code} of stock, and stock is kept in whole hundredths "
-        "of the base unit: record a quantity that converts to a whole hundredth (0.01) "
-        "of the base unit."
+        f"{item.variant.base_uom.code} of stock, and stock is kept to six decimal "
+        "places of the base unit: record a quantity that converts to at most "
+        "0.000001 of the base unit."
     )
 
 
@@ -774,7 +878,7 @@ def _create_batch(
     it stays null instead of becoming a far-future placeholder.
     """
     factor = line_factor(item)
-    base_qty = base_qty.quantize(CENT, rounding=ROUND_HALF_UP)
+    base_qty = base_qty.quantize(QTY, rounding=ROUND_HALF_UP)
     effective_unit_cost = (
         Decimal(unit_cost) if unit_cost is not None else Decimal(item.unit_cost)
     )
@@ -819,12 +923,29 @@ def reserved_base_qty_for_variant(
     total = qs.aggregate(
         reserved=Sum(
             ExpressionWrapper(
-                F("qty") * F("variant_uom__conversion_factor"),
-                output_field=DecimalField(max_digits=14, decimal_places=4),
+                base_qty_sql("qty", "variant_uom"),
+                output_field=DecimalField(max_digits=24, decimal_places=6),
             )
         )
     )["reserved"]
     return total or Decimal(0)
+
+
+def measure_tolerance(variant_uom) -> Decimal:
+    """`dust_tolerance` for one sale of `variant_uom`, counting the earlier measured
+    sales still on the variant's stock (each may have rounded by half a millionth)."""
+    from common.quantities import dust_tolerance
+
+    if not variant_uom.measure_per_base:
+        return Decimal(0)
+    from apps.pos.models import SalesItemDeduction
+
+    prior = SalesItemDeduction.objects.filter(
+        batch__variant_id=variant_uom.variant_id,
+        batch__current_qty__gt=0,
+        sales_item__variant_uom__measure_per_base__isnull=False,
+    ).count()
+    return dust_tolerance(variant_uom, prior)
 
 
 def allocate_fifo(
@@ -833,6 +954,7 @@ def allocate_fifo(
     qty_needed: Decimal,
     location_id: int | None = None,
     exclude_held_cart_id: int | None = None,
+    tolerance: Decimal = Decimal(0),
 ):
     """FIFO stock allocator, shelf by shelf (decision 21 §2, plan Design 3).
 
@@ -851,6 +973,11 @@ def allocate_fifo(
     so every existing caller keeps working without knowing about shelves.
 
     Raises `InsufficientStock` (a `ValueError`) when the shelves cannot cover it.
+
+    `tolerance` (sell by measure, `measure_tolerance`): a measured sale converts by
+    rounding to 6 decimals, so it may ask for a hair more than is left, or leave a hair
+    behind. Within `tolerance` it takes exactly what is there and leaves no dust. It is
+    0 for every other unit, so nothing else changes.
     """
     from django.db.models import Case, F, IntegerField, Value, When
 
@@ -898,9 +1025,11 @@ def allocate_fifo(
             exclude_held_cart_id=exclude_held_cart_id,
         )
         available = max(on_hand - reserved, Decimal(0))
+        if 0 < available < qty_needed <= available + tolerance:
+            qty_needed = available
         if available < qty_needed:
             variant = ProductVariant.objects.get(pk=variant_id)
-            note = f" ({reserved:.2f} reserved in held carts)" if reserved > 0 else ""
+            note = f" ({format_qty(reserved)} reserved in held carts)" if reserved > 0 else ""
             raise InsufficientStock(
                 f"Insufficient stock for {variant}{note}.",
                 shortfall=qty_needed - available,
@@ -914,10 +1043,15 @@ def allocate_fifo(
         if remaining <= 0:
             break
         take = min(batch.current_qty, remaining)
+        if 0 < batch.current_qty - take <= tolerance:
+            # Sell by measure: what would stay is rounding dust nobody can sell.
+            take = batch.current_qty
         batch.current_qty -= take
         allocations.append((batch, take))
         remaining -= take
 
+    if 0 < remaining <= tolerance and location_id is None:
+        remaining = Decimal(0)
     if remaining > 0:
         variant = ProductVariant.objects.get(pk=variant_id)
         raise InsufficientStock(
@@ -941,6 +1075,7 @@ def pick_up_caption(
     conversion_factor: Decimal,
     selling_unit: str,
     base_unit: str,
+    measure_per_base: Decimal | None = None,
 ) -> list:
     """The `pick_up` list for ONE line: which shelf each part of it left (Design 4).
 
@@ -974,11 +1109,22 @@ def pick_up_caption(
             {
                 "location": fallback_location_id,
                 "location_name": fallback_location_name,
-                "qty": f"{qty:.2f}",
+                "qty": format_qty(qty),
                 "unit": selling_unit,
             }
         ]
 
+    if measure_per_base:
+        # Sell by measure: every part reads in kilos/metres (exact per-base amount).
+        return [
+            {
+                "location": location_id,
+                "location_name": location_name,
+                "qty": format_qty((total * measure_per_base).quantize(Decimal("0.01"))),
+                "unit": selling_unit,
+            }
+            for location_id, (location_name, total) in grouped.items()
+        ]
     exact = all(total % conversion_factor == 0 for _, total in grouped.values())
     divisor = conversion_factor if exact else Decimal(1)
     unit = selling_unit if exact else base_unit
@@ -986,7 +1132,7 @@ def pick_up_caption(
         {
             "location": location_id,
             "location_name": location_name,
-            "qty": f"{total / divisor:.2f}",
+            "qty": format_qty(total / divisor),
             "unit": unit,
         }
         for location_id, (location_name, total) in grouped.items()
