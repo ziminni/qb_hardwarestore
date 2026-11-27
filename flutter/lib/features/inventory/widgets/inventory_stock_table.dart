@@ -91,9 +91,10 @@ class InventoryStockTable extends StatelessWidget {
                         vertical: 1,
                       ),
                       decoration: BoxDecoration(
-                        color: row.product.storedAtName
-                                .toLowerCase()
-                                .contains('bodega')
+                        color:
+                            row.product.storedAtName.toLowerCase().contains(
+                              'bodega',
+                            )
                             ? AppColors.warningTint
                             : AppColors.info.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(999),
@@ -103,9 +104,10 @@ class InventoryStockTable extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: row.product.storedAtName
-                                  .toLowerCase()
-                                  .contains('bodega')
+                          color:
+                              row.product.storedAtName.toLowerCase().contains(
+                                'bodega',
+                              )
                               ? AppColors.warningText
                               : AppColors.info,
                         ),
@@ -165,7 +167,24 @@ class InventoryStockTable extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (row.variant.baseUomIsWhole &&
+              // Sell by measure: a bag also sold by the kilo reads "9 BAG +
+              // 30 KG", which replaces the opened-bag wording.
+              if (row.variant.measuredStockLabel(
+                    inventory.stockOnHandFor(row.variant.id),
+                  )
+                  case final measured?)
+                Text(
+                  measured,
+                  key: ValueKey('measured-stock-${row.variant.id}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              else if (row.variant.baseUomIsWhole &&
                   openedUnitLabel(
                         inventory.stockOnHandFor(row.variant.id),
                         row.variant.baseUomCode,

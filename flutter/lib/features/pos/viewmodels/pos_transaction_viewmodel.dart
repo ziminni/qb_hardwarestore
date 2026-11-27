@@ -875,6 +875,7 @@ class PosTransactionViewmodel extends ChangeNotifier {
             // box price — a walk-in sale refused, or wrong change (Phase 6 review
             // I1, QA defects 1 and 2).
             conversionFactor: uom.conversionFactor,
+            measurePerBase: uom.measurePerBase,
             unitPrice: uom.defaultSellingPrice,
             // The server's own computed utang price, never re-derived here.
             creditUnitPrice: uom.creditSellingPrice,

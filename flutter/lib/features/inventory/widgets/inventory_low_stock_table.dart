@@ -169,7 +169,10 @@ class InventoryLowStockTable extends StatelessWidget {
         Align(
           alignment: Alignment.centerRight,
           child: Text(
-            'left of ${formatCount(threshold.round())}',
+            [
+              ?row.variant.measuredStockLabel(stock),
+              'left of ${formatCount(threshold.round())}',
+            ].join(' \u00b7 '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(

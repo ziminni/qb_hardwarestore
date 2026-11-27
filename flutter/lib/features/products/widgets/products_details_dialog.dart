@@ -224,7 +224,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                   'Cost: ${formatPeso((inventory.costFor(variant.id) ?? 0))}',
                 ),
                 Text(
-                  'Stock: ${formatQuantity(inventory.stockOnHandFor(variant.id))}',
+                  'Stock: ${variant.measuredStockLabel(inventory.stockOnHandFor(variant.id)) ?? formatQuantity(inventory.stockOnHandFor(variant.id))}',
                 ),
                 Text('Reorder: ${formatQuantity(variant.minStockThreshold)}'),
               ],

@@ -105,13 +105,14 @@ String formatCount(int value) {
 /// One stock quantity as text, for the whole app (D7).
 ///
 /// A whole quantity is a count: grouped thousands and no decimals, because a
-/// quantity was never `38.0`. A fractional one keeps at most two decimals with
-/// the trailing zeros dropped (`0.5`, `2.25`), so a batch of half a cubic metre
-/// reads as the number somebody wrote down. A negative keeps its sign.
+/// quantity was never `38.0`. A fractional one keeps at most three decimals
+/// with the trailing zeros dropped (`0.5`, `2.25`, `0.075` - 3 kg of a 40 kg
+/// bag), so a batch of half a cubic metre reads as the number somebody wrote
+/// down and a stored `9.750000` reads `9.75`. A negative keeps its sign.
 String formatQuantity(num value) {
-  final fixed = value.abs().toStringAsFixed(2);
+  final fixed = value.abs().toStringAsFixed(3);
   // A tiny negative rounds to zero; "-0" would be nonsense.
-  final sign = value < 0 && fixed != '0.00' ? '-' : '';
+  final sign = value < 0 && fixed != '0.000' ? '-' : '';
   final dot = fixed.indexOf('.');
   final whole = _groupThousands(fixed.substring(0, dot));
   final decimals = fixed.substring(dot).replaceFirst(RegExp(r'\.?0+$'), '');
@@ -132,6 +133,25 @@ String? openedUnitLabel(num onHand, String unitCode) {
     _ => formatQuantity(cents / 100),
   };
   return '1 opened $unitCode, $left left';
+}
+
+/// Sell by measure: stock of an item also sold by the kilo or metre, the way
+/// the store says it. `9.75` bags of 40 kg read "9 BAG + 30 KG"; a whole count
+/// reads "10 BAG". The remainder is rounded to 0.01 of the measured unit, so
+/// rounding dust (a millionth of a roll) never shows as "+ 0 M".
+String measuredStockLabel(
+  num onHand,
+  String baseCode,
+  String measureCode,
+  num measurePerBase,
+) {
+  final totalHundredths = (onHand * measurePerBase * 100).round();
+  final perBaseHundredths = (measurePerBase * 100).round();
+  final whole = totalHundredths ~/ perBaseHundredths;
+  final rest = totalHundredths - whole * perBaseHundredths;
+  final base = '${formatCount(whole)} $baseCode';
+  if (rest == 0) return base;
+  return '$base + ${formatQuantity(rest / 100)} $measureCode';
 }
 
 /// A signed quantity change, for an adjustment: `+10`, `-2`, `-0.5`.
