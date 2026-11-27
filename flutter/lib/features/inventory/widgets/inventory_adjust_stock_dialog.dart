@@ -112,8 +112,10 @@ class _InventoryAdjustStockDialogState
       }
     }
     // The field starts at THAT shelf's count — the figure the counter edits —
-    // and at the whole-shop figure when no per-shelf rows were handed in.
-    _quantity.text = _plainQuantity(_systemQuantity);
+    // and at the whole-shop figure when no per-shelf rows were handed in. It
+    // is the SAME 0.01-rounded figure the System box shows: an opened bag's
+    // 2.8125 would otherwise start the dialog at "Increase by 0.002".
+    _quantity.text = _plainQuantity(_systemInUnit);
   }
 
   /// The chosen shelf, when the server listed it.

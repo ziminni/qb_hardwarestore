@@ -106,7 +106,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('adjust-unit-31')));
     await tester.pumpAndSettle();
-    final field = tester.widget<TextFormField>(find.byType(TextFormField).first);
+    final field = tester.widget<TextFormField>(
+      find.byType(TextFormField).first,
+    );
     expect(field.controller!.text, '390');
 
     await tester.enterText(find.byType(TextFormField).first, '389.5');
@@ -119,10 +121,35 @@ void main() {
     expect(result!.variantUomId, 31);
   });
 
+  testWidgets('an opened bag counted in BAG starts at No change', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InventoryAdjustStockDialog(
+            product: _cement,
+            variant: _cement.variants.first,
+            currentStock: 2.8125,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextFormField>(
+      find.byType(TextFormField).first,
+    );
+    expect(field.controller!.text, '2.81');
+    expect(find.text('No change'), findsOneWidget);
+  });
+
   test('a KG count sends the kilo difference with its unit', () async {
     final repository = _CapturingInventoryRepository();
     final store = InventoryViewmodel(
-      products: FakeProductsRepository(products: [_cement], stockOnHand: _stock),
+      products: FakeProductsRepository(
+        products: [_cement],
+        stockOnHand: _stock,
+      ),
       inventory: repository,
       catalogue: FakeCatalogueRepository(),
     );
