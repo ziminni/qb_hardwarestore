@@ -254,7 +254,7 @@ class _ProductsDetailsDialogState extends State<ProductsDetailsDialog> {
                 key: ValueKey('add-pack-unit-${variant.id}'),
                 onPressed: () => _addUnit(context, variant),
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add pack unit'),
+                label: const Text('Add selling unit'),
               ),
             ],
           ],

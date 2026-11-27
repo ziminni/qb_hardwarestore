@@ -139,6 +139,7 @@ class NewSellingUnit {
     required this.sellingPrice,
     this.unitsPerBase,
     this.parts,
+    this.measurePerBase,
     this.barcodeQr = '',
     this.creditMarkupKind = 'NONE',
     this.creditMarkupValue = 0,
@@ -159,6 +160,11 @@ class NewSellingUnit {
   /// opened bag. The repository posts to `/variants/{id}/add-part-unit/`, which
   /// picks the HALF/QTR unit itself and never rebases the variant.
   final int? parts;
+
+  /// Sell by measure: how many of this kilo/metre unit one base unit holds
+  /// (40 kg per bag, 150 m per roll). The repository posts to
+  /// `/variants/{id}/add-measure-unit/`; the variant is never rebased.
+  final double? measurePerBase;
 
   /// Blank asks the server for this unit's own `QB` code.
   final String barcodeQr;
@@ -186,6 +192,18 @@ class NewSellingUnit {
       'credit_markup_value': creditMarkupValue,
     },
   };
+
+  /// Decimals go as strings so 40 kg per bag is "40", never 40.000000001.
+  Map<String, dynamic> measureUnitBody() => {
+    'uom_id': uomId,
+    'measure_per_base': _trimmed(measurePerBase!),
+    'default_selling_price': sellingPrice.toStringAsFixed(2),
+  };
+
+  static String _trimmed(double value) {
+    final fixed = value.toStringAsFixed(2);
+    return fixed.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
 
   Map<String, dynamic> smallerUnitBody() => {
     'uom': uomId,

@@ -261,6 +261,16 @@ class ProductsService {
     );
   }
 
+  /// Sell by measure: a kilo or metre unit of a bagged or rolled item.
+  Future<void> addMeasureUnit(int variantId, Map<String, dynamic> body) async {
+    await _write(
+      () => _client.post<Map<String, dynamic>>(
+        '$variantsPath$variantId/add-measure-unit/',
+        data: body,
+      ),
+    );
+  }
+
   /// Adds a smaller selling unit to an existing variant (rebasing cleanly when
   /// the variant has no sales/stock history yet).
   Future<void> addSmallerUnit(

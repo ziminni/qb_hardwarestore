@@ -227,7 +227,9 @@ class ProductsRepository {
   /// refusal names the unit, and nothing else was written.
   Future<void> createSellingUnit(int variantId, NewSellingUnit unit) => _step(
     ProductWriteStep.sellingUnit,
-    () => unit.parts != null
+    () => unit.measurePerBase != null
+        ? service.addMeasureUnit(variantId, unit.measureUnitBody())
+        : unit.parts != null
         ? service.addPartUnit(variantId, unit.partUnitBody())
         : unit.unitsPerBase != null
         ? service.addSmallerUnit(variantId, unit.smallerUnitBody())

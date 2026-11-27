@@ -1626,7 +1626,7 @@ class _ProductsFormDialogState extends State<ProductsFormDialog> {
                         key: const ValueKey('edit-add-pack-unit'),
                         onPressed: _addSellingUnitInline,
                         icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add pack unit'),
+                        label: const Text('Add selling unit'),
                       ),
                   ],
                 ),
