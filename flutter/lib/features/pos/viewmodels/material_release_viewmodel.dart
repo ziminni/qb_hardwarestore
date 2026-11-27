@@ -119,6 +119,12 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     (sum, line) => sum + line.unitPrice * giveNow(line.id),
   );
 
+  /// What this release hands over, line by line, for the summary.
+  List<({String name, double qty, String unit})> get givingToday => [
+    for (final line in givingLines)
+      (name: line.variantName, qty: giveNow(line.id), unit: line.unit),
+  ];
+
   /// What a later visit still has to collect, after this release.
   List<({String name, double qty, String unit})> get stillOpenAfter => [
     for (final line in _eligibleLines)

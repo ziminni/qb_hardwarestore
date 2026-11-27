@@ -76,9 +76,9 @@ void main() {
     testWidgets('empty at ${width.$1} px', (tester) async {
       await _pumpRelease(tester, width.$2, _StubRequisitions());
 
-      expect(find.text('Choose the request to release'), findsOneWidget);
+      expect(find.text('Waiting for release'), findsOneWidget);
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsNothing,
       );
 
@@ -91,7 +91,7 @@ void main() {
 
       expect(find.text('REQ-20261024-0117'), findsOneWidget);
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsOneWidget,
       );
 
@@ -121,8 +121,7 @@ void main() {
       );
       await _verify(tester);
 
-      expect(find.text('Short'), findsOneWidget);
-      expect(find.text('18 of 48 available'), findsOneWidget);
+      expect(find.text('Short: up to 18 now'), findsOneWidget);
       expect(
         find.text('Not available'),
         findsOneWidget,
@@ -133,9 +132,9 @@ void main() {
         findsOneWidget,
         reason: 'the store\'s reason has to be readable at the counter',
       );
-      expect(find.text('Already released'), findsOneWidget);
+      expect(find.text('Already given'), findsOneWidget);
       expect(
-        find.text('Releases 2 of 3 lines now. The rest stays open on this token.'),
+        find.text('Release 2 items'),
         findsOneWidget,
         reason: 'the refused line is not part of what the request promises',
       );
@@ -338,7 +337,7 @@ Future<void> _verify(WidgetTester tester) async {
 }
 
 Future<void> _release(WidgetTester tester) async {
-  final button = find.widgetWithText(FilledButton, 'Release materials');
+  final button = find.byKey(const ValueKey('release-confirm'));
   // At 760 px the action sits below the fold of the shell's scroll view.
   await tester.ensureVisible(button);
   await tester.pumpAndSettle();

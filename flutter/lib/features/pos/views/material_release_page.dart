@@ -9,7 +9,9 @@ import 'package:client/data/models/requisition.dart';
 import 'package:client/features/dashboard/widget/dashboard_shell.dart';
 import 'package:client/features/pos/viewmodels/material_release_viewmodel.dart';
 import 'package:client/features/pos/widgets/pos_navigation.dart';
-import 'package:client/features/pos/widgets/pos_release_step_panel.dart';
+import 'package:client/features/pos/widgets/release_line_row.dart';
+import 'package:client/features/pos/widgets/release_summary_bar.dart';
+import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/features/pos/widgets/pos_receipt_dialog.dart';
 import 'package:client/routes/routes.dart';
 import 'package:client/shared/widgets/error_banner.dart';
@@ -28,9 +30,10 @@ import 'package:go_router/go_router.dart';
 /// release. Each line says what can leave the store now, and anything that cannot stays
 /// open on the same token, which is why the confirm press can be absent entirely.
 ///
-/// Three steps, in the order the clerk does them: verify the token, review the requisition it
-/// stands for, then the receipt the release leaves behind. [viewmodel] is injectable so a test can
-/// observe what the screen sends; production passes nothing.
+/// One screen (2026-11-27 design, layout B): the waiting requests and the token field on the
+/// left, the chosen request on the right with a Give now amount per line, then the receipt in
+/// the same place. [viewmodel] is injectable so a test can observe what the screen sends;
+/// production passes nothing.
 class MaterialReleasePage extends StatefulWidget {
   const MaterialReleasePage({super.key, this.viewmodel, this.printer});
 
@@ -126,7 +129,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
     return DashboardShell(
       title: 'Release materials',
       subtitle:
-          'Choose an accepted request, check the items, then release them',
+          'Pick a waiting request, choose how much goes out today, then release',
       selectedNavigationIndex: 2,
       navigationItems: posNavigationItems,
       onNavigationSelected: (i) => navigatePos(context, i),
@@ -137,30 +140,34 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
     );
   }
 
+  /// Wide windows: the queue beside the request, so the cashier moves from one
+  /// request to the next without switching steps (2026-11-27 design, layout B).
+  /// Narrow windows stack the two.
+  static const double _twoPaneWidth = 1100;
+  static const double _queuePaneWidth = 380;
+
   Widget _body(BuildContext context) {
-    final step = _viewmodel.isReleased
-        ? 3
-        : _viewmodel.hasVerified
-        ? 2
-        : 1;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _ReleaseProgressHeader(currentStep: step),
-        const SizedBox(height: AppSpacing.md),
-        if (_errorBanner() case final banner?) ...[
-          banner,
-          const SizedBox(height: AppSpacing.lg),
-        ],
-        // One column at every width: the steps are a sequence, and a side by
-        // side layout squeezed the requisition into cards and pushed the
-        // release below the fold even on a 1440 px window.
-        _tokenStep(),
-        const SizedBox(height: AppSpacing.lg),
-        _reviewStep(),
-        const SizedBox(height: AppSpacing.lg),
-        _receiptStep(),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= _twoPaneWidth) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: _queuePaneWidth, child: _queuePane()),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(child: _requestPane()),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _queuePane(),
+            const SizedBox(height: AppSpacing.lg),
+            _requestPane(),
+          ],
+        );
+      },
     );
   }
 
@@ -197,98 +204,277 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
     );
   }
 
-  // ------------------------------------------------------------------ step 1
+  // --------------------------------------------------------------- left pane
 
-  Widget _tokenStep() {
+  Widget _queuePane() {
     final selected = _viewmodel.verification?.reqNumber;
-    return PosReleaseStepPanel(
-      step: 1,
-      title: 'Choose the request to release',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Requests the store manager accepted. Pick the one the project '
-            'is collecting. The list updates by itself.',
-            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _ReleaseQueue(
-            viewmodel: _viewmodel,
-            selectedReqNumber: selected,
-            enabled: !_viewmodel.isBusy && !_printing,
-            onPick: _pickRequest,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          const Text(
-            'Have a token slip instead? Scan its QR or type the token.',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Expanded(
-                child: _TokenField(
-                  controller: _token,
-                  onSubmitted: (_) => _verify(),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              // Disabled with an empty field: a press that cannot work should
-              // look like it cannot work, not explain itself afterwards.
-              ListenableBuilder(
-                listenable: _token,
-                builder: (context, _) => SizedBox(
-                  height: _TokenField.height,
-                  child: FilledButton(
-                    onPressed:
-                        _viewmodel.isBusy ||
-                            _printing ||
-                            _token.text.trim().isEmpty
-                        ? null
-                        : _verify,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(148, _TokenField.height),
-                      // Family spelled out: a partial textStyle REPLACES the
-                      // theme's label style and drops the label to the platform
-                      // font (app_button_theme.dart says the same).
-                      textStyle: const TextStyle(
-                        fontFamily: AppTextStyles.outfitFont,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    child: const Text('Verify'),
+    return KeyedSubtree(
+      key: const ValueKey('release-queue-pane'),
+      child: AppPanel(
+        title: 'Waiting for release',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Requests the store manager accepted. Pick the one the project '
+              'is collecting. The list updates by itself.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            _ReleaseQueue(
+              viewmodel: _viewmodel,
+              selectedReqNumber: selected,
+              enabled: !_viewmodel.isBusy && !_printing,
+              onPick: _pickRequest,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            const Text(
+              'Have a token slip instead? Scan its QR or type the token.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _TokenField(controller: _token, onSubmitted: (_) => _verify()),
+            const SizedBox(height: AppSpacing.sm),
+            // Disabled with an empty field: a press that cannot work should
+            // look like it cannot work, not explain itself afterwards.
+            ListenableBuilder(
+              listenable: _token,
+              builder: (context, _) => FilledButton(
+                onPressed:
+                    _viewmodel.isBusy ||
+                        _printing ||
+                        _token.text.trim().isEmpty
+                    ? null
+                    : _verify,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  // Family spelled out: a partial textStyle REPLACES the
+                  // theme's label style and drops the label to the platform
+                  // font (app_button_theme.dart says the same).
+                  textStyle: const TextStyle(
+                    fontFamily: AppTextStyles.outfitFont,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
+                child: const Text('Verify'),
               ),
-            ],
-          ),
-          if (_viewmodel.isBusy)
-            const Padding(
-              padding: EdgeInsets.only(top: AppSpacing.md),
-              child: LinearProgressIndicator(),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // ------------------------------------------------------------------ step 2
+  // -------------------------------------------------------------- right pane
 
-  Widget _reviewStep() {
+  Widget _requestPane() {
     final verification = _viewmodel.verification;
-    return PosReleaseStepPanel(
-      step: 2,
-      title: 'Check what to hand over, then release',
-      pending: verification == null,
-      child: verification == null
-          ? const _StepHint(
-              'Choose a request above. Its items and what can be handed over '
-              'now appear here.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    final result = _viewmodel.result;
+    return KeyedSubtree(
+      key: const ValueKey('release-request-pane'),
+      child: AppPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_errorBanner() case final banner?) ...[
+              banner,
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (_viewmodel.isBusy) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (verification == null)
+              const _StepHint(
+                'Choose a request on the left, or scan a slip. Its items and '
+                'what can go out now appear here.',
+              )
+            else ...[
+              _RequestHeader(verification: verification),
+              const SizedBox(height: AppSpacing.md),
+              if (result == null)
+                ..._linesAndRelease(verification)
+              else
+                _receipt(result),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _linesAndRelease(TokenVerification verification) {
+    final items = verification.items;
+    final blocked = _viewmodel.confirmBlockedReason;
+    final giving = _viewmodel.givingLines.length;
+    return [
+      if (items.isEmpty)
+        const _StepHint('No lines on this requisition.')
+      else
+        for (var i = 0; i < items.length; i++)
+          ReleaseLineRow(
+            key: ValueKey('release-line-${items[i].id}'),
+            item: items[i],
+            giveNow: _viewmodel.giveNow(items[i].id),
+            changed: _viewmodel.giveNowChanged(items[i].id),
+            onChanged: items[i].isReleasable && !_viewmodel.isBusy
+                ? (value) => _viewmodel.setGiveNow(items[i].id, value)
+                : null,
+            last: i == items.length - 1,
+          ),
+      const SizedBox(height: AppSpacing.md),
+      // Nothing can go out at all: no press, just the reason (decision 05).
+      if (!_viewmodel.hasReleasable)
+        Text(
+          blocked ?? '',
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        )
+      else ...[
+        ReleaseSummaryBar(
+          giving: _viewmodel.givingToday,
+          total: _viewmodel.todayTotal,
+          stillOpen: _viewmodel.stillOpenAfter,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        if (blocked != null) ...[
+          Text(
+            blocked,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.warningText,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        // One large button, like the till's Pay: this is the irreversible press
+        // and it should not look like a form.
+        FilledButton.icon(
+          key: const ValueKey('release-confirm'),
+          onPressed: _viewmodel.isBusy || blocked != null
+              ? null
+              : _viewmodel.release,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 56),
+            textStyle: const TextStyle(
+              fontFamily: AppTextStyles.outfitFont,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          icon: const Icon(Icons.check_circle_outline),
+          label: Text(
+            giving == 1 ? 'Release 1 item' : 'Release $giving items',
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        const Text(
+          'Releasing deducts the stock and posts the receivable. It cannot be '
+          'undone. Whatever is not given stays open on this token.',
+          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
+      ],
+    ];
+  }
+
+  Widget _receipt(ReleaseResult result) {
+    return Column(
+      key: const ValueKey('release-receipt'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            // Decision 05: a short release leaves the request open, and the
+            // clerk has to say so, so the receipt cannot read "Released".
+            StatusBadge(
+              label: result.isPartial ? 'Partially released' : 'Released',
+              tone: result.isPartial ? StatusTone.warning : StatusTone.success,
+            ),
+            const Spacer(),
+            Text(
+              'Sale ${result.transactionNo}',
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        // A count of zero is not a sentence: the server can answer PARTIAL
+        // while every line is finished, and "0 lines still open" would send
+        // the project away and back for nothing.
+        if (result.isPartial && result.openLineCount > 0) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Partially released: ${_openLines(result)} still open on '
+            'this token.',
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        _MoneyLine(label: 'Total', amount: result.grandTotal),
+        const SizedBox(height: AppSpacing.xs),
+        // A construction firm pays later, so this is the number the clerk
+        // must say out loud.
+        _MoneyLine(
+          label: 'Balance due',
+          amount: result.balanceDue,
+          emphasis: true,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        OutlinedButton.icon(
+          onPressed: _printing ? null : _printReceipt,
+          icon: const Icon(Icons.print_outlined),
+          label: Text(_printing ? 'Printing…' : 'Print receipt'),
+        ),
+        if (_printError case final message?) ...[
+          const SizedBox(height: AppSpacing.sm),
+          ErrorBanner(message: message),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          onPressed: _viewmodel.isBusy || _printing ? null : _startOver,
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+          child: const Text('Next request'),
+        ),
+      ],
+    );
+  }
+}
+
+/// One line, in words a clerk can repeat: how many lines the request still owes.
+String _openLines(ReleaseResult result) =>
+    result.openLineCount == 1 ? '1 line' : '${result.openLineCount} lines';
+
+/// The open request: number, project, who it is for, and where it stands.
+class _RequestHeader extends StatelessWidget {
+  const _RequestHeader({required this.verification});
+
+  final TokenVerification verification;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, tone) = switch (verification.status) {
+      'PARTIAL' => ('Partly released', StatusTone.warning),
+      'ACCEPTED' => ('Accepted', StatusTone.success),
+      _ => (null, StatusTone.neutral),
+    };
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadii.medium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   verification.reqNumber,
@@ -297,7 +483,7 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xs),
+                const SizedBox(height: 2),
                 Text(verification.project),
                 // Who the materials are being released for — the same
                 // provenance rule as the approve queue.
@@ -308,520 +494,19 @@ class _MaterialReleasePageState extends State<MaterialReleasePage>
                     color: AppColors.textSecondary,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                _RequisitionLines(items: verification.items),
-                if (!_viewmodel.isReleased) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  if (_viewmodel.confirmBlockedReason case final reason?)
-                    Text(
-                      reason,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textSecondary,
-                      ),
-                    )
-                  else ...[
-                    if (_viewmodel.leavesLinesOpen) ...[
-                      Container(
-                        key: const ValueKey('release-partial-warning'),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.warningTint,
-                          borderRadius: BorderRadius.circular(AppRadii.medium),
-                          border: Border.all(
-                            color: AppColors.warning.withValues(alpha: 0.45),
-                          ),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              Icons.inventory_2_outlined,
-                              size: 18,
-                              color: AppColors.warningText,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Partial release due to stock: '
-                                '${_viewmodel.releasableLineCount} of '
-                                '${_viewmodel.totalLineCount} lines will be '
-                                'handed over now. Short or out-of-stock '
-                                'balances stay open on this same request so '
-                                'the project can claim the rest once restocked.',
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.warningText,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                    ],
-                    // One large button, like the till's Pay: this is the
-                    // irreversible press and it should not look like a form.
-                    FilledButton.icon(
-                      onPressed: _viewmodel.isBusy ? null : _viewmodel.release,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 56),
-                        textStyle: const TextStyle(
-                          fontFamily: AppTextStyles.outfitFont,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: Text(
-                        _viewmodel.leavesLinesOpen
-                            ? 'Release available materials (Partial)'
-                            : 'Release materials',
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    // What goes now against what stays behind, before the press:
-                    // the clerk has to be able to tell the project which lines
-                    // they will have to come back for.
-                    Text(
-                      _viewmodel.leavesLinesOpen
-                          ? 'Releases ${_viewmodel.releasableLineCount} of '
-                                '${_viewmodel.totalLineCount} lines now. The '
-                                'rest stays open on this token.'
-                          : 'Releases every line on this request now.',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    const Text(
-                      'Releasing deducts the stock and posts the receivable. It '
-                      'cannot be undone.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ],
               ],
             ),
-    );
-  }
-
-  // ------------------------------------------------------------------ step 3
-
-  Widget _receiptStep() {
-    final result = _viewmodel.result;
-    final verification = _viewmodel.verification;
-    return PosReleaseStepPanel(
-      step: 3,
-      title: 'Release receipt',
-      pending: result == null,
-      child: result == null
-          ? const _StepHint(
-              'The receipt for this release appears here once the materials '
-              'leave the store.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    // Decision 05: a short release leaves the request open, and the
-                    // clerk has to say so, so the receipt cannot read "Released".
-                    StatusBadge(
-                      label: result.isPartial
-                          ? 'Partially released'
-                          : 'Released',
-                      tone: result.isPartial
-                          ? StatusTone.warning
-                          : StatusTone.success,
-                    ),
-                    const Spacer(),
-                    if (verification != null)
-                      Text(
-                        verification.reqNumber,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                  ],
-                ),
-                // A count of zero is not a sentence: the server can answer PARTIAL
-                // while every line is finished, and "0 lines still open" would send
-                // the project away and back for nothing.
-                if (result.isPartial && result.openLineCount > 0) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'Partially released: ${_openLines(result)} still open on '
-                    'this token.',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.md),
-                Text('Sale ${result.transactionNo}'),
-                // What left stock is NOT repeated here: step 2 shows the same
-                // lines one panel above, and printing them twice pushed the
-                // balance due off a 900 px window. The money is the part the
-                // clerk has to say out loud.
-                const SizedBox(height: AppSpacing.md),
-                _MoneyLine(label: 'Total', amount: result.grandTotal),
-                const SizedBox(height: AppSpacing.xs),
-                // A construction firm pays later, so this is the number the
-                // clerk must say out loud.
-                _MoneyLine(
-                  label: 'Balance due',
-                  amount: result.balanceDue,
-                  emphasis: true,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                OutlinedButton.icon(
-                  onPressed: _printing ? null : _printReceipt,
-                  icon: const Icon(Icons.print_outlined),
-                  label: Text(_printing ? 'Printing…' : 'Print receipt'),
-                ),
-                if (_printError case final message?) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  ErrorBanner(message: message),
-                ],
-                const SizedBox(height: AppSpacing.sm),
-                OutlinedButton(
-                  onPressed: _viewmodel.isBusy || _printing ? null : _startOver,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                  ),
-                  child: const Text('Next request'),
-                ),
-              ],
-            ),
-    );
-  }
-}
-
-/// One line, in words a clerk can repeat: how many lines the request still owes.
-String _openLines(ReleaseResult result) =>
-    result.openLineCount == 1 ? '1 line' : '${result.openLineCount} lines';
-
-class _ReleaseProgressHeader extends StatelessWidget {
-  const _ReleaseProgressHeader({required this.currentStep});
-
-  final int currentStep;
-
-  static const _steps = [
-    (step: 1, title: 'Select Request / Token'),
-    (step: 2, title: 'Check Stock & Release'),
-    (step: 3, title: 'Release Receipt'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < _steps.length; i++) ...[
-            if (i > 0)
-              Expanded(
-                child: Container(
-                  height: 2,
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  color: _steps[i].step <= currentStep
-                      ? AppColors.brandGold
-                      : AppColors.border,
-                ),
-              ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 13,
-                  backgroundColor: _steps[i].step < currentStep
-                      ? AppColors.successText
-                      : _steps[i].step == currentStep
-                      ? AppColors.brandBlack
-                      : AppColors.surfaceSunken,
-                  child: _steps[i].step < currentStep
-                      ? const Icon(
-                          Icons.check,
-                          size: 14,
-                          color: AppColors.brandWhite,
-                        )
-                      : Text(
-                          '${_steps[i].step}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _steps[i].step == currentStep
-                                ? AppColors.brandGold
-                                : AppColors.textSecondary,
-                          ),
-                        ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _steps[i].title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: _steps[i].step == currentStep
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                    color: _steps[i].step <= currentStep
-                        ? AppColors.textPrimary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// The verified requisition's lines: item, how many were ordered, how many are still to
-/// hand over, how many go NOW on this release, and the line's status.
-///
-/// Not `DataPanel`: inside a step panel its own frame doubled the borders, and
-/// under 720 px of content it falls back to one tall card per line, which put
-/// the release action below the fold at both 760 px and 1440 px. A requisition
-/// has a handful of lines and three short columns each, so they read straight down.
-class _RequisitionLines extends StatelessWidget {
-  const _RequisitionLines({required this.items});
-
-  final List<VerifiedRequisitionItem> items;
-
-  static const double _numberWidth = 104;
-  static const double _statusWidth = 176;
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const _StepHint('No lines on this requisition.');
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceSunken,
-        borderRadius: BorderRadius.circular(AppRadii.medium),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _row(
-            const Text('Item', style: _headerStyle),
-            const Text(
-              'Ordered',
-              style: _headerStyle,
-              textAlign: TextAlign.right,
-            ),
-            const Text(
-              'Still to give',
-              style: _headerStyle,
-              textAlign: TextAlign.right,
-            ),
-            const Text(
-              'Give now',
-              style: _headerStyle,
-              textAlign: TextAlign.right,
-            ),
-            const Text('Status', style: _headerStyle),
-            last: false,
           ),
-          for (var index = 0; index < items.length; index++)
-            _row(
-              Text(
-                items[index].variantName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Text(
-                formatQuantity(items[index].quantity),
-                textAlign: TextAlign.right,
-                style: _numberStyle,
-              ),
-              Text(
-                formatQuantity(items[index].remaining),
-                textAlign: TextAlign.right,
-                style: _numberStyle,
-              ),
-              // What the cashier physically hands over on this release.
-              Align(
-                alignment: Alignment.centerRight,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: (items[index].available == false
-                            ? 0
-                            : items[index].goesNow) >
-                        0
-                        ? AppColors.brandGold.withValues(alpha: 0.16)
-                        : AppColors.cardBackground,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: (items[index].available == false
-                              ? 0
-                              : items[index].goesNow) >
-                          0
-                          ? AppColors.brandGold
-                          : AppColors.border,
-                    ),
-                  ),
-                  child: Text(
-                    formatQuantity(
-                      items[index].available == false
-                          ? 0
-                          : items[index].goesNow,
-                    ),
-                    textAlign: TextAlign.right,
-                    style: _numberStyle.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-              _AvailabilityCell(item: items[index]),
-              last: index == items.length - 1,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(
-    Widget item,
-    Widget requested,
-    Widget remaining,
-    Widget goesNow,
-    Widget availability, {
-    required bool last,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: last
-          ? null
-          : const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-            ),
-      child: Row(
-        children: [
-          Expanded(flex: 3, child: item),
-          const SizedBox(width: AppSpacing.md),
-          SizedBox(width: _numberWidth, child: requested),
-          const SizedBox(width: AppSpacing.md),
-          SizedBox(width: _numberWidth, child: remaining),
-          const SizedBox(width: AppSpacing.md),
-          SizedBox(width: _numberWidth, child: goesNow),
-          // A gap before the pill: right-aligned numbers butt straight into it
-          // otherwise, and the two headers read as one word.
-          SizedBox(
-            width: _statusWidth,
-            child: Padding(
-              padding: const EdgeInsets.only(left: AppSpacing.lg),
-              child: availability,
-            ),
-          ),
+          if (label != null) StatusBadge(label: label, tone: tone),
         ],
       ),
     );
   }
 }
-
-/// What can leave the store from one line, as the house status pill plus, for a short
-/// line, the two numbers the pill cannot hold.
-class _AvailabilityCell extends StatelessWidget {
-  const _AvailabilityCell({required this.item});
-
-  final VerifiedRequisitionItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    // Decision 13: the STORE's answer outranks the shelf's word. A line the store marked
-    // Not available will never be served, whatever is on the shelf today, and its reason
-    // is the sentence the clerk repeats to the project.
-    if (item.available == false) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const StatusBadge(label: 'Not available', tone: StatusTone.error),
-          if (item.declineReason.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                item.declineReason,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ),
-        ],
-      );
-    }
-    final (label, tone) = switch (item.availability) {
-      LineAvailability.full => ('Full', StatusTone.success),
-      LineAvailability.short => ('Short', StatusTone.warning),
-      LineAvailability.unavailable => ('Unavailable', StatusTone.error),
-      LineAvailability.done => ('Already released', StatusTone.neutral),
-    };
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        StatusBadge(label: label, tone: tone),
-        if (item.availability == LineAvailability.short)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '${formatQuantity(item.goesNow)} of '
-              '${formatQuantity(item.remaining)} available',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-const TextStyle _headerStyle = TextStyle(
-  fontSize: 12,
-  fontWeight: FontWeight.w600,
-  color: AppColors.textSecondary,
-);
-
-const TextStyle _numberStyle = TextStyle(
-  fontFeatures: [FontFeature.tabularFigures()],
-);
 
 /// The token field
 class _TokenField extends StatelessWidget {
   const _TokenField({required this.controller, required this.onSubmitted});
-
-  /// The field and the button beside it are one row, so the button matches the
-  /// field instead of relying on both growing to the same height by accident.
-  static const double height = 58;
 
   final TextEditingController controller;
   final ValueChanged<String> onSubmitted;
@@ -914,10 +599,6 @@ class _MoneyLine extends StatelessWidget {
     );
   }
 }
-
-/// A requisition quantity, written the one way the app writes quantities (D7):
-/// whole bags are not "10.0".
-
 
 /// The accepted requests waiting at the counter, picked with one click.
 class _ReleaseQueue extends StatefulWidget {

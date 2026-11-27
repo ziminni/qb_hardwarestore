@@ -83,7 +83,7 @@ Future<void> _pumpAndRelease(
   await tester.pump();
   await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
   await tester.pumpAndSettle();
-  await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+  await tester.tap(find.byKey(const ValueKey('release-confirm')));
   await tester.pumpAndSettle();
 }
 
