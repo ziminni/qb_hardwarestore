@@ -57,27 +57,36 @@ class ReportsCatalogueView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visible = reportSectionsFor(areas ?? {shell.area});
+    final held = areas ?? {shell.area};
+    final visible = reportSectionsFor(held);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final section in ReportSection.values)
-          if (visible.contains(section)) _Section(section: section, onOpen: _open),
+          if (visible.contains(section))
+            _Section(section: section, areas: held, onOpen: _open),
       ],
     );
   }
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.section, required this.onOpen});
+  const _Section({
+    required this.section,
+    required this.areas,
+    required this.onOpen,
+  });
 
   final ReportSection section;
+  final Set<String> areas;
   final void Function(BuildContext context, ReportDefinition report) onOpen;
 
   @override
   Widget build(BuildContext context) {
     final reports = reportCatalogue
-        .where((report) => report.section == section)
+        .where(
+          (report) => report.section == section && report.readableBy(areas),
+        )
         .toList();
     if (reports.isEmpty) return const SizedBox.shrink();
     return Padding(

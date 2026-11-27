@@ -339,7 +339,10 @@ class _StubReportsRepository extends ReportsRepository {
   }
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async {
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async {
     return const RequisitionHistory(
       from: '2026-10-01',
       to: '2026-10-31',

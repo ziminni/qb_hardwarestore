@@ -216,6 +216,10 @@ void main() {
       findsNothing,
     );
     expect(find.text('Sales summary'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('report-row-requisition-history')),
+      findsNothing,
+    );
 
     // The first inventory report is what opens.
     expect(
@@ -223,6 +227,37 @@ void main() {
       findsOneWidget,
     );
     expect(find.widgetWithText(MetricTile, 'Value at cost'), findsOneWidget);
+  });
+
+  testWidgets('store manager sees requisition history in wide layout', (
+    tester,
+  ) async {
+    _useWideWindow(tester);
+    await tester.pumpWidget(_host(_browser(areas: const {'sales'})));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('report-row-requisition-history')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('inventory-only narrow picker omits requisition history', (
+    tester,
+  ) async {
+    _useNarrowWindow(tester);
+    await tester.pumpWidget(
+      _host(
+        _browser(shell: ReportsShell.inventory, areas: const {'inventory'}),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final picker = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const ValueKey('report-picker')),
+    );
+    expect(picker, isNotNull);
+    await tester.tap(find.byKey(const ValueKey('report-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('Requisition history'), findsNothing);
   });
 
   testWidgets('collapsing a group hides its rows, and expanding brings them '

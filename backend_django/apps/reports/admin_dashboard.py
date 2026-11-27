@@ -281,15 +281,34 @@ def _sales(today):
             }
             for row in by_cashier
         ],
-        "by_payment_method_month": [
-            {
-                "method": row["method"],
-                "total": _money(row["total"]),
-                "count": row["count"],
-            }
-            for row in by_method
-        ],
+        "by_payment_method_month": _net_of_change(
+            by_method,
+            sales.filter(trans_date__date__gte=month_start).aggregate(
+                s=Sum("change_given")
+            )["s"],
+        ),
     }
+
+
+def _net_of_change(by_method, change):
+    """Tenders as money kept: the change handed back comes off the cash.
+
+    `amount_tendered` is what the customer handed over, so cash read richer than
+    the drawer (and than the Store Manager's payment mix) by every peso of change.
+    """
+    rows = [
+        {
+            "method": row["method"],
+            "total": row["total"] or Decimal(0),
+            "count": row["count"],
+        }
+        for row in by_method
+    ]
+    for row in rows:
+        if row["method"] == "CASH":
+            row["total"] -= change or Decimal(0)
+    rows.sort(key=lambda row: row["total"], reverse=True)
+    return [{**row, "total": _money(row["total"])} for row in rows]
 
 
 def _inventory(today):

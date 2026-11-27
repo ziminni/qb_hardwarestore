@@ -61,14 +61,16 @@ class _StubReportsRepository extends ReportsRepository {
   );
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async =>
-      const RequisitionHistory(
-        from: '',
-        to: '',
-        statusFilter: null,
-        countByStatus: {},
-        requisitions: [],
-      );
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async => const RequisitionHistory(
+    from: '',
+    to: '',
+    statusFilter: null,
+    countByStatus: {},
+    requisitions: [],
+  );
 }
 
 void main() {
@@ -101,62 +103,70 @@ void main() {
     expect(find.text('Payment fees'), findsNothing);
   });
 
-  testWidgets('the sales report shows Payment fees tile and column when fees exist', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1600, 1400);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'the sales report shows Payment fees tile and column when fees exist',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      ChangeNotifierProvider<AuthViewmodel>.value(
-        value: AuthViewmodel(AuthRepository(AuthService())),
-        child: MaterialApp(
-          home: SalesReportsPage(
-            viewmodel: AdminReportsViewmodel(
-              repository: _FeeStubReportsRepository(),
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: AuthViewmodel(AuthRepository(AuthService())),
+          child: MaterialApp(
+            home: SalesReportsPage(
+              viewmodel: AdminReportsViewmodel(
+                repository: _FeeStubReportsRepository(),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Payment fees'), findsNWidgets(2));
-    expect(find.text('₱35.00'), findsWidgets);
-  });
+      expect(find.text('Payment fees'), findsNWidgets(2));
+      expect(find.text('₱35.00'), findsWidgets);
+    },
+  );
 
-  testWidgets('the sales report shows Operational Profit Breakdown and visual charts', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1600, 1800);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'the sales report shows Operational Profit Breakdown and visual charts',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      ChangeNotifierProvider<AuthViewmodel>.value(
-        value: AuthViewmodel(AuthRepository(AuthService())),
-        child: MaterialApp(
-          home: SalesReportsPage(
-            viewmodel: AdminReportsViewmodel(
-              repository: _ProfitStubReportsRepository(),
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthViewmodel>.value(
+          value: AuthViewmodel(AuthRepository(AuthService())),
+          child: MaterialApp(
+            home: SalesReportsPage(
+              viewmodel: AdminReportsViewmodel(
+                repository: _ProfitStubReportsRepository(),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('profit-breakdown-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('sales-daily-chart')), findsOneWidget);
-    expect(find.byKey(const ValueKey('sales-category-chart')), findsOneWidget);
-    expect(find.text('Operational Profit Breakdown'), findsOneWidget);
-    expect(find.text('Margin 20.0%'), findsOneWidget);
-    expect(find.text('Markup 25.0%'), findsOneWidget);
-    expect(find.text('₱90.00'), findsWidgets);
-  });
+      expect(
+        find.byKey(const ValueKey('profit-breakdown-card')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('sales-daily-chart')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('sales-category-chart')),
+        findsOneWidget,
+      );
+      expect(find.text('Operational Profit Breakdown'), findsOneWidget);
+      expect(find.text('Margin 20.0%'), findsOneWidget);
+      expect(find.text('Markup 25.0%'), findsOneWidget);
+      expect(find.text('₱90.00'), findsWidgets);
+    },
+  );
 }
 
 class _ProfitStubReportsRepository extends _StubReportsRepository {

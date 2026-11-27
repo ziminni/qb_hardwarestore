@@ -17,6 +17,7 @@ SUMMARY_URL = "/api/v1/reports/sales-summary/"
 ITEM_WISE_URL = "/api/v1/reports/sales-by-item/"
 BILL_WISE_URL = "/api/v1/reports/bill-wise/"
 VALUATION_URL = "/api/v1/reports/inventory-valuation/"
+ADMIN_DASHBOARD_URL = "/api/v1/reports/admin-dashboard/"
 
 
 class ReportAccuracyTests(DiscountVATBase):
@@ -95,3 +96,13 @@ class ReportAccuracyTests(DiscountVATBase):
             Decimal(str(data["totals"]["total_retail_value"])),
             on_hand * self._price(),
         )
+
+    def test_admin_dashboard_cash_is_net_of_change(self):
+        price = self._price()
+        self._sell(1, str(price + 50))
+        data = self.client.get(ADMIN_DASHBOARD_URL, **self.admin_auth).json()
+        cash = [
+            row for row in data["sales"]["by_payment_method_month"]
+            if row["method"] == "CASH"
+        ]
+        self.assertEqual(Decimal(cash[0]["total"]), price)

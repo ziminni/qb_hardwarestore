@@ -21,8 +21,10 @@ class ReportsRepository {
   Future<StockMovements> fetchStockMovements({String? from, String? to}) =>
       _service.fetchStockMovements(from: from, to: to);
 
-  Future<RequisitionHistory> fetchRequisitionHistory() =>
-      _service.fetchRequisitionHistory();
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) => _service.fetchRequisitionHistory(from: from, to: to);
 
   Future<VatReportSummary> fetchVatSummary({
     String? from,

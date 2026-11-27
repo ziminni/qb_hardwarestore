@@ -135,6 +135,7 @@ void main() {
       expect(find.text('Inventory valuation'), findsOneWidget);
       expect(find.text('SALES'), findsNothing);
       expect(find.text('Sales summary'), findsNothing);
+      expect(find.text('Requisition history'), findsNothing);
       expect(
         find.text('KPIs'),
         findsNothing,

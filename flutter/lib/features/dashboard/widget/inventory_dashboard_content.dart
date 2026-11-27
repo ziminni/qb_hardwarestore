@@ -15,6 +15,7 @@ import 'package:client/shared/widgets/app_panel.dart';
 import 'package:client/shared/widgets/empty_state.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:client/shared/widgets/metric_grid.dart';
+import 'package:client/shared/widgets/operational_charts.dart';
 import 'package:client/shared/widgets/stitch_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -47,31 +48,33 @@ const int _dashboardRowLimit = 5;
 ///
 /// A silent `take(5)` once hid a zero-stock variant at position 6 while the
 /// manager restocked others, so the panel also says how many were cut.
+List<InventoryRestockRow> _restockRows(InventoryViewmodel inventory) =>
+    [
+      for (final product in inventory.products)
+        for (final variant in product.variants)
+          if (inventory.statusForVariant(variant.id) !=
+              InventoryStockStatus.inStock)
+            InventoryRestockRow(
+              variantId: variant.id,
+              item: '${product.baseName} ${variant.variantName}',
+              onHand: inventory.stockOnHandFor(variant.id),
+              threshold: variant.minStockThreshold,
+              status: inventory.statusForVariant(variant.id),
+            ),
+    ]..sort((a, b) {
+      final aOut = a.onHand <= 0;
+      final bOut = b.onHand <= 0;
+      if (aOut != bOut) return aOut ? -1 : 1;
+      double coverage(InventoryRestockRow row) =>
+          row.threshold > 0 ? row.onHand / row.threshold : 0;
+      return coverage(a).compareTo(coverage(b));
+    });
+
 Widget buildInventoryRestockPanel(
   BuildContext context,
   InventoryViewmodel inventory,
 ) {
-  final needsRestock =
-      [
-        for (final product in inventory.products)
-          for (final variant in product.variants)
-            if (inventory.statusForVariant(variant.id) !=
-                InventoryStockStatus.inStock)
-              InventoryRestockRow(
-                variantId: variant.id,
-                item: '${product.baseName} ${variant.variantName}',
-                onHand: inventory.stockOnHandFor(variant.id),
-                threshold: variant.minStockThreshold,
-                status: inventory.statusForVariant(variant.id),
-              ),
-      ]..sort((a, b) {
-        final aOut = a.onHand <= 0;
-        final bOut = b.onHand <= 0;
-        if (aOut != bOut) return aOut ? -1 : 1;
-        double coverage(InventoryRestockRow row) =>
-            row.threshold > 0 ? row.onHand / row.threshold : 0;
-        return coverage(a).compareTo(coverage(b));
-      });
+  final needsRestock = _restockRows(inventory);
 
   return InventoryRestockQueuePanel(
     rows: needsRestock.take(_dashboardRowLimit).toList(),
@@ -225,6 +228,7 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
         .length;
 
     final criticalCount = lowStock + outOfStock;
+    final restockRows = _restockRows(inventory);
 
     // Adjustment rows name the item, which the adjustment itself does not carry.
     final itemNames = <int, String>{
@@ -434,7 +438,7 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
                       subtitle:
                           'FIFO stock capital distribution — Store vs Bodega.',
                       slices: [
-                        for (final entry in topLocations.take(6))
+                        for (final entry in topLocations)
                           ShareSlice(
                             label: entry.key,
                             value: entry.value,
@@ -482,6 +486,17 @@ class _InventoryDashboardContentState extends State<InventoryDashboardContent> {
           // 4. Real Active FIFO Pipeline Queue
           InventoryFifoPipelineCard(inventory: inventory),
           const SizedBox(height: AppSpacing.lg),
+          if (restockRows.isNotEmpty) ...[
+            StockCoverageChart(
+              key: const ValueKey('inventory-dashboard-stock-coverage'),
+              title: 'Urgent replenishment coverage',
+              items: [
+                for (final row in restockRows.take(5))
+                  StockCoverageItem(row.item, row.onHand, row.threshold),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+          ],
           // 5. Urgent Restock Queue + Waiting to Receive
           LayoutBuilder(
             builder: (context, constraints) {

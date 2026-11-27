@@ -19,20 +19,35 @@ class _StubReportsRepository extends ReportsRepository {
   Completer<void>? holdSales;
 
   SalesSummary summary = const SalesSummary(
-    from: '', to: '', totalTransactions: 2, totalGross: 100,
-    totalVat: 0, totalDiscounts: 0, days: [],
+    from: '',
+    to: '',
+    totalTransactions: 2,
+    totalGross: 100,
+    totalVat: 0,
+    totalDiscounts: 0,
+    days: [],
   );
   InventoryValuation valuation = const InventoryValuation(
-    batchCount: 1, totalUnits: 5, totalCost: 50, totalRetail: 80,
+    batchCount: 1,
+    totalUnits: 5,
+    totalCost: 50,
+    totalRetail: 80,
     categories: [],
   );
   StockMovements movements = const StockMovements(
-    from: '', to: '', totalIn: 10, totalOut: 3,
-    receiptsByDay: [], adjustmentsByType: [],
+    from: '',
+    to: '',
+    totalIn: 10,
+    totalOut: 3,
+    receiptsByDay: [],
+    adjustmentsByType: [],
   );
   RequisitionHistory history = const RequisitionHistory(
-    from: '', to: '', statusFilter: null,
-    countByStatus: {}, requisitions: [],
+    from: '',
+    to: '',
+    statusFilter: null,
+    countByStatus: {},
+    requisitions: [],
   );
 
   @override
@@ -60,7 +75,10 @@ class _StubReportsRepository extends ReportsRepository {
   }
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async {
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async {
     historyCalls++;
     return history;
   }
@@ -130,4 +148,3 @@ void main() {
     expect(repository.lastTo, '2026-01-31');
   });
 }
-

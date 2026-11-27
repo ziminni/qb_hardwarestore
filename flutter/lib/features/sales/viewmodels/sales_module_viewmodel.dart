@@ -147,10 +147,11 @@ class SalesModuleViewmodel extends ChangeNotifier {
           SalesQuotation(
             q.number,
             nameOf(q.customerId),
-            DateTime.parse(q.createdAt),
-            // No expiry on the wire means none set: fall back to creation.
-            DateTime.tryParse(q.validUntil ?? '') ??
-                DateTime.parse(q.createdAt),
+            // Local time: a UTC parse put a 4 AM Manila quotation on the
+            // previous day, so it read as already expired.
+            DateTime.parse(q.createdAt).toLocal(),
+            // No expiry on the wire means none was set: it never expires.
+            DateTime.tryParse(q.validUntil ?? ''),
             q.items.fold<double>(0, (sum, i) => sum + i.qty * i.unitPrice),
             _quoteStatus(q.status),
             id: q.id,

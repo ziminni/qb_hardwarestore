@@ -340,24 +340,26 @@ class _StubChartRepository extends ReportsRepository {
   );
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async =>
-      const RequisitionHistory(
-        from: '2026-10-01',
-        to: '2026-10-30',
-        statusFilter: null,
-        countByStatus: {'APPROVED': 2, 'PENDING': 1},
-        requisitions: [
-          RequisitionHistoryRow(
-            id: 1,
-            reqNumber: 'REQ-0001',
-            status: 'APPROVED',
-            project: 'Store Floor',
-            requestedBy: 'Maria Santos',
-            approvedBy: 'Jose Reyes',
-            createdAt: '2026-10-27T09:00:00+08:00',
-          ),
-        ],
-      );
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async => const RequisitionHistory(
+    from: '2026-10-01',
+    to: '2026-10-30',
+    statusFilter: null,
+    countByStatus: {'APPROVED': 2, 'PENDING': 1},
+    requisitions: [
+      RequisitionHistoryRow(
+        id: 1,
+        reqNumber: 'REQ-0001',
+        status: 'APPROVED',
+        project: 'Store Floor',
+        requestedBy: 'Maria Santos',
+        approvedBy: 'Jose Reyes',
+        createdAt: '2026-10-27T09:00:00+08:00',
+      ),
+    ],
+  );
 
   @override
   Future<ReturnsExchangesReport> fetchReturnsExchanges({
@@ -910,14 +912,16 @@ class _EmptyChartRepository extends ReportsRepository {
   );
 
   @override
-  Future<RequisitionHistory> fetchRequisitionHistory() async =>
-      const RequisitionHistory(
-        from: '2026-10-01',
-        to: '2026-10-30',
-        statusFilter: null,
-        countByStatus: {},
-        requisitions: [],
-      );
+  Future<RequisitionHistory> fetchRequisitionHistory({
+    String? from,
+    String? to,
+  }) async => const RequisitionHistory(
+    from: '2026-10-01',
+    to: '2026-10-30',
+    statusFilter: null,
+    countByStatus: {},
+    requisitions: [],
+  );
 
   @override
   Future<ReturnsExchangesReport> fetchReturnsExchanges({
@@ -1240,6 +1244,13 @@ void main() {
       await _open(tester, 'inventory-valuation', _StubChartRepository());
 
       expect(
+        find.byKey(const ValueKey('report-viewer-valuation-cost-retail')),
+        findsOneWidget,
+      );
+      expect(find.text('Current snapshot'), findsOneWidget);
+      expect(find.byKey(const ValueKey('report-viewer-range')), findsNothing);
+
+      expect(
         find.byKey(const ValueKey('report-viewer-valuation-category-split')),
         findsOneWidget,
       );
@@ -1333,6 +1344,11 @@ void main() {
       await _open(tester, 'batch-age', _StubChartRepository());
 
       expect(
+        find.byKey(const ValueKey('report-viewer-fifo-priority')),
+        findsOneWidget,
+      );
+
+      expect(
         find.byKey(const ValueKey('report-viewer-batch-age-chart')),
         findsOneWidget,
       );
@@ -1354,6 +1370,11 @@ void main() {
       await _open(tester, 'adjustments', _StubChartRepository());
 
       expect(
+        find.byKey(const ValueKey('report-viewer-adjustments-direction')),
+        findsOneWidget,
+      );
+
+      expect(
         find.byKey(const ValueKey('report-viewer-adjustments-split')),
         findsOneWidget,
       );
@@ -1362,6 +1383,11 @@ void main() {
 
     testWidgets('reorder draws the biggest shortfalls first', (tester) async {
       await _open(tester, 'reorder', _StubChartRepository());
+
+      expect(
+        find.byKey(const ValueKey('report-viewer-reorder-coverage')),
+        findsOneWidget,
+      );
 
       expect(
         find.byKey(const ValueKey('report-viewer-reorder-chart')),
@@ -1392,6 +1418,11 @@ void main() {
       tester,
     ) async {
       await _open(tester, 'cycle-count', _StubChartRepository());
+
+      expect(
+        find.byKey(const ValueKey('report-viewer-cycle-count-direction')),
+        findsOneWidget,
+      );
 
       expect(
         find.byKey(const ValueKey('report-viewer-cycle-count-split')),

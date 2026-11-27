@@ -2302,12 +2302,17 @@ def requisition_history_view(request):
         .annotate(count=Count("id"))
         .order_by("-count")
     )
+    paginator = PageNumberPagination()
+    page = paginator.paginate_queryset(qs.order_by("-created_at", "-id"), request)
     return Response(
         {
             "from": str(frm),
             "to": str(to),
             "status_filter": status_filter or None,
             "count_by_status": list(by_status),
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
             "requisitions": [
                 {
                     "id": r.id,
@@ -2321,7 +2326,7 @@ def requisition_history_view(request):
                     "approved_by": r.approver_name or None,
                     "created_at": r.created_at,
                 }
-                for r in qs.order_by("-created_at")[:200]
+                for r in page
             ],
         }
     )

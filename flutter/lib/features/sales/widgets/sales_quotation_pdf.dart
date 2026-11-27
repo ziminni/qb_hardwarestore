@@ -29,12 +29,14 @@ class QuotationPdf {
 ReportPdfContent quotationPdfContent({
   required String number,
   required String customer,
-  required DateTime validUntil,
+  required DateTime? validUntil,
   required List<SalesDocumentLine> lines,
   required num total,
 }) => ReportPdfContent(
   title: 'Quotation $number',
-  period: 'Valid until ${formatDate(validUntil)}',
+  period: validUntil == null
+      ? 'No expiry date'
+      : 'Valid until ${formatDate(validUntil)}',
   filters: const [],
   // shortcut: static store header until store details are user-editable, the
   // same source every report's letterhead reads.
@@ -62,7 +64,7 @@ ReportPdfContent quotationPdfContent({
 Future<Uint8List> renderQuotationPdf({
   required String number,
   required String customer,
-  required DateTime validUntil,
+  required DateTime? validUntil,
   required List<SalesDocumentLine> lines,
   required num total,
 }) {

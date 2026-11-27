@@ -300,6 +300,10 @@ void main() {
       final decoded = Excel.decodeBytes(bytes);
 
       expect(decoded.tables.keys, containsAll(['By Category', 'By Location']));
+      // The location sheet ends in a total, like the category sheet.
+      final last = decoded.tables['By Location']!.rows.last;
+      expect(last.first?.value.toString(), 'Total');
+      expect(last[3]?.value.toString(), anyOf('12000', '12000.0'));
     },
   );
 

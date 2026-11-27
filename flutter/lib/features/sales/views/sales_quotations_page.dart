@@ -80,7 +80,10 @@ class _SalesQuotationsPageState extends State<SalesQuotationsPage> {
         ('Customer', item.customer),
         ('Status', _statusLabel(item, now)),
         ('Created', formatDate(item.date)),
-        ('Valid until', formatDate(item.validUntil)),
+        (
+          'Valid until',
+          item.validUntil == null ? 'No expiry' : formatDate(item.validUntil!),
+        ),
         if ((item.notes ?? '').isNotEmpty) ('Notes', item.notes!),
       ],
       lines: lines,
@@ -283,13 +286,10 @@ bool _hasExpired(SalesQuotation item, DateTime now) {
   final open =
       item.status == SalesQuoteStatus.draft ||
       item.status == SalesQuoteStatus.sent;
-  if (!open) return false;
+  final until = item.validUntil;
+  if (!open || until == null) return false;
   final today = DateTime(now.year, now.month, now.day);
-  final limit = DateTime(
-    item.validUntil.year,
-    item.validUntil.month,
-    item.validUntil.day,
-  );
+  final limit = DateTime(until.year, until.month, until.day);
   return limit.isBefore(today);
 }
 

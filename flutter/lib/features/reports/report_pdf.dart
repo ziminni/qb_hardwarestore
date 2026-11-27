@@ -140,6 +140,7 @@ Future<Uint8List> renderReportPdf({
   /// words instead of borrowing the reports' "no matching records".
   String emptyMessage = noMatchingRecords,
 }) async {
+  String printable(String value) => value.replaceAll('\u20b1', 'PHP ');
   final content = ReportPdfContent(
     title: title,
     period: period,
@@ -149,9 +150,16 @@ Future<Uint8List> renderReportPdf({
     storeName: storeName,
     storeAddress: storeAddress,
     storeTin: storeTin,
-    kpis: kpis,
-    columns: columns,
-    rows: rows,
+    kpis: [
+      for (final kpi in kpis)
+        (
+          label: printable(kpi.label),
+          value: printable(kpi.value),
+          caption: kpi.caption == null ? null : printable(kpi.caption!),
+        ),
+    ],
+    columns: columns.map(printable).toList(),
+    rows: [for (final row in rows) row.map(printable).toList()],
     emptyMessage: emptyMessage,
   );
   final document = pw.Document(
@@ -163,6 +171,7 @@ Future<Uint8List> renderReportPdf({
   document.addPage(
     pw.MultiPage(
       pageFormat: reportPdfPageFormat(landscape: landscape),
+      maxPages: rows.length + 20,
       margin: const pw.EdgeInsets.fromLTRB(32, 28, 32, 34),
       // Page 1 carries the letterhead and the title, so only a continuation
       // page repeats the report identity and the column headings.
@@ -188,7 +197,11 @@ List<pw.Widget> _identity(ReportPdfContent content) {
       ),
       for (final line in content.letterheadLines.skip(1))
         pw.Text(line, style: small),
-      pw.Divider(thickness: 0.8, color: PdfColors.grey600, height: 10),
+      pw.Divider(
+        thickness: 1.5,
+        color: const PdfColor.fromInt(0xFFAC934F),
+        height: 10,
+      ),
     ],
     pw.Text(
       content.title,
@@ -220,6 +233,7 @@ pw.Widget _kpiTiles(List<ReportPdfKpi> kpis) => pw.Wrap(
         width: 118,
         padding: const pw.EdgeInsets.all(6),
         decoration: pw.BoxDecoration(
+          color: const PdfColor.fromInt(0xFFF8F6F0),
           border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
           borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
         ),
@@ -306,7 +320,7 @@ pw.Widget _pageFooter(pw.Context context) => pw.Container(
 );
 
 pw.TableRow _headingRow(List<String> columns) => pw.TableRow(
-  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+  decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFE1C684)),
   children: [for (final column in columns) _cell(column, bold: true)],
 );
 
