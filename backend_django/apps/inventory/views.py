@@ -36,6 +36,7 @@ from apps.users.permissions import (
 )
 from apps.users.services import audit_request
 from common.exceptions import refuse_fractional_whole_unit
+from common.quantities import format_qty
 
 from .catalogue_import import apply_catalogue_import, preview_catalogue_import
 from .exceptions import (
@@ -1706,8 +1707,8 @@ def stock_on_hand_view(request):
                 "is_home": row["location"] == row["home"],
                 # Text like every other quantity this API emits (DRF serializes a
                 # DecimalField to a string); a raw Decimal would reach the client as a
-                # float.
-                "qty": f"{row['qty']:.2f}",
+                # float. Sell by measure: up to 6 decimals, trimmed ("9.9875", "10.00").
+                "qty": format_qty(row["qty"]),
             }
             for row in grouped
         ]

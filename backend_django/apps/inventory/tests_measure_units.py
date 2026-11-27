@@ -215,6 +215,24 @@ class MeasureUnitTests(APITestCase):
             Decimal("9.9875"),
         )
 
+    def test_stock_on_hand_keeps_the_kilos(self):
+        kilo = self._kilo_with_stock()
+        self.client.post(
+            "/api/v1/adjustments/",
+            {
+                "variant": self.variant.pk,
+                "variant_uom": kilo.pk,
+                "adjustment_type": "DAMAGE",
+                "qty_adjusted": "-0.5",
+            },
+            format="json",
+        )
+        rows = self.client.get(
+            f"/api/v1/stock-on-hand/?variant={self.variant.pk}"
+        ).data
+        # 9.9875 bags, not 9.99: the app turns this into "9 BAG + 39.5 KG".
+        self.assertEqual([r["qty"] for r in rows], ["9.9875"])
+
     def test_adjustment_in_another_variants_unit_is_refused(self):
         self._kilo_with_stock()
         other = ProductVariant.objects.create(
