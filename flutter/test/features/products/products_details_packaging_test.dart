@@ -174,18 +174,18 @@ void main() {
     expect(find.textContaining('QB000210-2'), findsOneWidget);
   });
 
-  testWidgets('a cashier gets no Add pack unit, Add variant, or Remove', (
+  testWidgets('a cashier gets no Add selling unit, Add variant, or Remove', (
     tester,
   ) async {
     await openDetails(tester, 'pos');
 
     expect(find.text('Add variant'), findsNothing);
-    expect(find.text('Add pack unit'), findsNothing);
+    expect(find.text('Add selling unit'), findsNothing);
     expect(find.text('Remove'), findsNothing);
     expect(find.text('Edit code'), findsNothing);
   });
 
-  testWidgets('Remove is offered only for an unused NON-base unit and Add pack unit is shown', (
+  testWidgets('Remove is offered only for an unused NON-base unit and Add selling unit is shown', (
     tester,
   ) async {
     await openDetails(tester, 'inventory');
@@ -202,18 +202,20 @@ void main() {
       reason: 'a unit already sold stays, its price and code editable',
     );
     expect(find.byKey(const ValueKey('add-pack-unit-210')), findsOneWidget);
-    expect(find.text('Add pack unit'), findsOneWidget);
+    expect(find.text('Add selling unit'), findsOneWidget);
     expect(find.byKey(const ValueKey('add-variant-21')), findsOneWidget);
   });
 
-  testWidgets('Add pack unit posts flexible decimal factor, shows live comparison hint, and reloads', (
+  testWidgets('Add selling unit posts flexible decimal factor, shows live comparison hint, and reloads', (
     tester,
   ) async {
     await openDetails(tester, 'inventory');
     final loadsBefore = repository.loadCount;
 
     await tapVisible(tester, find.byKey(const ValueKey('add-pack-unit-210')));
-    expect(find.text('Add selling unit'), findsOneWidget);
+    // The button and the dialog's title now share the words; the dialog's own
+    // kind switch proves it opened.
+    expect(find.byKey(const ValueKey('add-unit-kind')), findsOneWidget);
 
     await tapVisible(tester, find.byKey(const ValueKey('add-unit-0')));
     await tester.tap(find.text('Pack (PACK)').last);

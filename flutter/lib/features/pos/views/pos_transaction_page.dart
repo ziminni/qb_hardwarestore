@@ -389,6 +389,8 @@ class _PosTransactionPageState extends State<PosTransactionPage> {
       categories: transaction.categories,
       selectedCategory: transaction.selectedCategory,
       onCategorySelected: transaction.setCategory,
+      stockLabelFor: (item) =>
+          posMeasuredStockLabel(item, transaction.saleOptionsFor(item)),
     );
 
     return LayoutBuilder(

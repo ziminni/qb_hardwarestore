@@ -47,6 +47,18 @@ class WholeUnitQuantity(ValueError):
     code = "WHOLE_UNIT_QUANTITY"
 
 
+class TooPreciseQuantity(WholeUnitQuantity):
+    """A typed quantity with more than 2 decimals (sell by measure).
+
+    Stock is stored to 6 decimals so 1 kg of a 40 kg bag fits, but a person never types
+    more than 2 (7.5 kg, 0.35 m). A finer amount is refused, not silently rounded. A
+    `WholeUnitQuantity` subclass so every handler and catch site already treats it as
+    the same kind of 400 - only its `code` differs.
+    """
+
+    code = "QTY_TOO_PRECISE"
+
+
 def refuse_fractional_whole_unit(*, is_whole, qty, what):
     """Raise `WholeUnitQuantity` when a whole unit's quantity is not a whole number.
 
@@ -54,6 +66,11 @@ def refuse_fractional_whole_unit(*, is_whole, qty, what):
     it ("Line 2 (Portland Cement — 40kg, BAG)" or "po_item 7"), because the clerk's next
     move is to correct THAT line.
     """
+    from common.quantities import typed_qty_error
+
+    problem = typed_qty_error(qty)
+    if problem is not None:
+        raise TooPreciseQuantity(f"{what}: {problem}")
     if is_whole and qty % 1 != 0:
         raise WholeUnitQuantity(
             f"{what}: {qty} is not a whole number, and this unit is counted in whole "

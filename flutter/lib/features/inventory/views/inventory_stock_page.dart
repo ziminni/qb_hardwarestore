@@ -82,6 +82,7 @@ class _InventoryStockPageState extends State<InventoryStockPage> {
       reason: result.reason,
       notes: result.notes,
       locationId: result.locationId,
+      variantUomId: result.variantUomId,
     );
     if (!mounted) return;
     messenger.showSnackBar(

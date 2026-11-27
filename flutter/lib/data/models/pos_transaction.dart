@@ -1,5 +1,26 @@
+import 'package:client/core/format/format.dart' as format;
 import 'package:client/data/models/pick_up.dart';
 import 'package:client/data/models/sale_discount.dart';
+
+/// The stock line of a BASE-unit card whose variant is also sold by the kilo or
+/// metre: `2 BAG + 32.5 KG` instead of `2.813 BAG`. Null for any other card.
+String? posMeasuredStockLabel(
+  PosCatalogItem card,
+  List<PosCatalogItem> options,
+) {
+  if (card.isMeasured || card.conversionFactor != 1) return null;
+  for (final option in options) {
+    if (option.variantId == card.variantId && option.isMeasured) {
+      return format.measuredStockLabel(
+        card.availableBaseStock,
+        card.unit,
+        option.unit,
+        option.measurePerBase!,
+      );
+    }
+  }
+  return null;
+}
 
 class PosCatalogItem {
   const PosCatalogItem({
@@ -20,6 +41,7 @@ class PosCatalogItem {
     this.isLowStock = false,
     this.imageUrl = '',
     this.allowDiscount = true,
+    this.measurePerBase,
   });
   final int variantUomId;
   final int variantId;
@@ -67,7 +89,17 @@ class PosCatalogItem {
   /// quantity dialog. A row built without the flag is treated as measured, which
   /// is the safe direction (the cashier confirms a quantity).
   final bool isWhole;
-  double get availableSaleQuantity => availableBaseStock / conversionFactor;
+
+  /// Sell by measure: kilos per bag / metres per roll, null for other units.
+  final double? measurePerBase;
+
+  bool get isMeasured => measurePerBase != null;
+
+  /// What is left in THIS unit. A measured unit multiplies by the exact
+  /// kilos per bag, because its factor (1/150 = 0.006667) is rounded.
+  double get availableSaleQuantity => measurePerBase != null
+      ? availableBaseStock * measurePerBase!
+      : availableBaseStock / conversionFactor;
 }
 
 class PosCustomer {

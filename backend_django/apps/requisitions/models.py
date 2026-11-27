@@ -26,6 +26,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 
+from common.fields import QuantityField
+
 
 class Project(models.Model):
     """A construction project linked to a contractor/construction-firm Customer."""
@@ -139,14 +141,14 @@ class RequisitionItem(models.Model):
         on_delete=models.PROTECT,
         related_name='requisition_items',
     )
-    quantity = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    quantity = QuantityField(
+        max_digits=18,
+        decimal_places=6,
         validators=[MinValueValidator(Decimal('0.01'))],
     )
-    released_qty = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    released_qty = QuantityField(
+        max_digits=18,
+        decimal_places=6,
         default=0,
         validators=[MinValueValidator(Decimal('0'))],
     )

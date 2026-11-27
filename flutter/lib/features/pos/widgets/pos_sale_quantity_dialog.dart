@@ -97,7 +97,7 @@ class _PosSaleQuantityDialogState extends State<PosSaleQuantityDialog> {
                   autofocus: true,
                   autovalidateMode: AutovalidateMode.onUserInteraction,
                   inputFormatters: decimalInputFormatters(
-                    maxDecimals: _selected.isWhole ? 0 : 3,
+                    maxDecimals: _selected.isWhole ? 0 : 2,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,

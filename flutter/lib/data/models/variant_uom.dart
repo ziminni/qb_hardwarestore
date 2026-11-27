@@ -27,6 +27,7 @@ class VariantUom {
     this.storedAtName = '',
     this.inUse = false,
     this.lastPriceChangedAt,
+    this.measurePerBase,
   }) : creditSellingPrice = creditSellingPrice ?? defaultSellingPrice;
 
   final int id;
@@ -45,6 +46,14 @@ class VariantUom {
 
   /// How many base units one of this selling unit contains.
   final double conversionFactor;
+
+  /// Sell by measure: how many of this unit one base unit holds (40 kg per
+  /// bag, 150 m per roll). Null for every other unit. The server converts by
+  /// dividing by it, so the till never multiplies by the rounded factor.
+  final double? measurePerBase;
+
+  /// True for a kilo/metre unit of a bagged or rolled item.
+  bool get isMeasured => measurePerBase != null;
 
   final double defaultSellingPrice;
 
@@ -118,7 +127,8 @@ class VariantUom {
       defaultSellingPrice: decimalField(json, 'default_selling_price'),
       // Lenient when ABSENT (an older body), strict when present: a server that
       // sends a kind we cannot read is a contract change, not a short payload.
-      creditMarkupKind: json['credit_markup_kind'] is String &&
+      creditMarkupKind:
+          json['credit_markup_kind'] is String &&
               (json['credit_markup_kind'] as String).isNotEmpty
           ? json['credit_markup_kind'] as String
           : 'NONE',
@@ -141,6 +151,9 @@ class VariantUom {
       lastPriceChangedAt: json['last_price_changed_at'] is String
           ? DateTime.tryParse(json['last_price_changed_at'] as String)
           : null,
+      measurePerBase: json['measure_per_base'] == null
+          ? null
+          : decimalField(json, 'measure_per_base'),
     );
   }
 }

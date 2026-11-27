@@ -27,6 +27,7 @@ from apps.collectibles.models import CollectibleLedger
 from apps.inventory.models import InventoryBatch, VariantUOM, normalise_barcode
 from apps.inventory.services import (
     allocate_fifo,
+    measure_tolerance,
     check_low_stock_after_stock_out,
     lock_selling_unit_lines,
     pick_up_caption,
@@ -43,6 +44,7 @@ from apps.pos.models import (
 from apps.pos.services import generate_or_number, generate_transaction_no
 from common.exceptions import refuse_fractional_whole_unit
 from common.numbering import generate_document_number
+from common.quantities import to_base_qty
 
 from .exceptions import (
     DuplicateMaterial,
@@ -81,6 +83,7 @@ def releasable_qty(
     available_base: Decimal,
     conversion_factor: Decimal,
     is_whole: bool,
+    measure_per_base: Decimal | None = None,
 ) -> Decimal:
     """How much of one requested line can leave the store now, in the line's selling unit.
 
@@ -93,7 +96,10 @@ def releasable_qty(
       Always round DOWN, never past what is on the shelf.
     Returns a Decimal with 2 decimal places, 0.00 when nothing can go.
     """
-    on_shelf = max(available_base, Decimal(0)) / conversion_factor
+    if measure_per_base:
+        on_shelf = max(available_base, Decimal(0)) * measure_per_base
+    else:
+        on_shelf = max(available_base, Decimal(0)) / conversion_factor
     step = Decimal(1) if is_whole else Decimal("0.01")
     return (
         min(remaining, on_shelf)
@@ -214,10 +220,11 @@ def _release_plan(requisition) -> list:
                 remaining=remaining,
                 available_base=available,
                 conversion_factor=item.variant_uom.conversion_factor,
+                measure_per_base=item.variant_uom.measure_per_base,
                 is_whole=item.variant_uom.uom.is_whole,
             )
             on_hand[variant.pk] = (
-                available - releasable * item.variant_uom.conversion_factor
+                available - to_base_qty(item.variant_uom, releasable)
             )
         plan.append(
             {
@@ -424,7 +431,9 @@ def release_materials(*, token_value: str, cashier) -> dict:
             # the release left no record of WHERE the goods came from, and the pick-up
             # caption had nothing to read.
             allocations = allocate_fifo(
-                variant_id=vuom.variant_id, qty_needed=qty * vuom.conversion_factor
+                variant_id=vuom.variant_id,
+                qty_needed=to_base_qty(vuom, qty),
+                tolerance=measure_tolerance(vuom),
             )
             affected_variant_ids.add(vuom.variant_id)
             pick_up_by_item[item.pk] = [
@@ -562,6 +571,7 @@ def release_materials(*, token_value: str, cashier) -> dict:
                     ].variant_uom.variant.product.stored_at.name,
                     qty=line["releasable"],
                     conversion_factor=line["item"].variant_uom.conversion_factor,
+                    measure_per_base=line["item"].variant_uom.measure_per_base,
                     selling_unit=line["item"].variant_uom.uom.code,
                     base_unit=line["item"].variant_uom.variant.base_uom.code,
                 ),

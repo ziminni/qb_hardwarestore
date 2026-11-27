@@ -1,3 +1,4 @@
+import 'package:client/core/format/format.dart' as format;
 import 'package:client/data/models/json_field.dart';
 import 'package:client/data/models/variant_uom.dart';
 
@@ -74,6 +75,28 @@ class ProductVariant {
       if (uom.uomId == baseUomId && uom.conversionFactor == 1) return uom;
     }
     return null;
+  }
+
+  /// Sell by measure: the kilo or metre unit of a bagged or rolled item, if
+  /// it has one (the server allows at most one).
+  VariantUom? get measuredUnit {
+    for (final uom in sellingUoms) {
+      if (uom.isMeasured) return uom;
+    }
+    return null;
+  }
+
+  /// Stock in the store's words when the item sells by measure ("9 BAG + 30
+  /// KG"); null otherwise, so the caller keeps its usual wording.
+  String? measuredStockLabel(num onHand) {
+    final unit = measuredUnit;
+    if (unit == null) return null;
+    return format.measuredStockLabel(
+      onHand,
+      baseUomCode,
+      unit.uomCode,
+      unit.measurePerBase!,
+    );
   }
 
   ProductVariant copyWith({

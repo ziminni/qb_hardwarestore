@@ -418,10 +418,10 @@ class TransferRefusalTests(TransferTestBase):
         self.assertEqual(response.data["code"], "WHOLE_UNIT_QUANTITY")
         self._assert_nothing_written(Decimal(10))
 
-    def test_a_quantity_that_is_not_a_whole_hundredth_is_refused(self):
+    def test_a_quantity_finer_than_six_decimals_is_refused(self):
         self.vuom.uom.is_whole = False
         self.vuom.uom.save()
-        self.vuom.conversion_factor = Decimal("0.03")
+        self.vuom.conversion_factor = Decimal("0.000003")
         self.vuom.save()
         self._batch(qty="10", location=self.store)
 

@@ -269,18 +269,18 @@ class SupplierReturnRefusalTests(ReturnTestBase):
             InventoryBatch.objects.get(receipt=receipt).current_qty, Decimal(40)
         )
 
-    def test_a_quantity_that_is_not_a_whole_hundredth_of_stock_is_refused(self):
+    def test_a_quantity_finer_than_six_decimals_of_stock_is_refused(self):
         # KG is a MEASURED unit (migration 0008), so 0.5 of it is not itself refused;
         # what is refused is the stock it converts to.
         uom = UnitOfMeasure.objects.get(code="KG")
         unit = VariantUOM.objects.create(
             variant=self.variant,
             uom=uom,
-            conversion_factor=Decimal("0.03"),
+            conversion_factor=Decimal("0.000003"),
             default_selling_price=Decimal(10),
         )
         po, item = self._po(ordered="10", cost="10", unit=unit)
-        receipt = self._receipt(po, [(item, "1")])  # 0.03 base units, storable
+        receipt = self._receipt(po, [(item, "1")])  # 0.000003 base units, storable
         self._process(receipt)
         line = self._lines(receipt)[0]
 

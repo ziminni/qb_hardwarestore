@@ -80,6 +80,7 @@ class InventoryService {
     required double quantity,
     String remarks = '',
     int? locationId,
+    int? variantUomId,
   }) async {
     try {
       final response = await _client.post<Map<String, dynamic>>(
@@ -94,6 +95,8 @@ class InventoryService {
           // every adjustment before this phase — so the client stays silent about
           // a default it did not choose.
           'location': ?locationId,
+          // Sell by measure: `qty_adjusted` is in this kilo/metre unit.
+          'variant_uom': ?variantUomId,
         },
       );
       final data = response.data;

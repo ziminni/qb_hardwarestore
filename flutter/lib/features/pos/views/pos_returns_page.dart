@@ -787,7 +787,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                         'exchange-replacement-qty-${item.variantUomId}-${item.qty}',
                       ),
                       initialValue: formatQuantity(item.qty),
-                      inputFormatters: decimalInputFormatters(maxDecimals: 3),
+                      inputFormatters: decimalInputFormatters(maxDecimals: 2),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -902,7 +902,7 @@ class _PosReturnsPageState extends State<PosReturnsPage> {
                             key: const ValueKey('exchange-picker-qty-field'),
                             initialValue: customQty,
                             inputFormatters: decimalInputFormatters(
-                              maxDecimals: 3,
+                              maxDecimals: 2,
                             ),
                             keyboardType:
                                 const TextInputType.numberWithOptions(

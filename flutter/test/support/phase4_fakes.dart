@@ -43,6 +43,7 @@ VariantUom variantUom({
   double factor = 1,
   bool isWhole = false,
   bool inUse = false,
+  double? measurePerBase,
 }) => VariantUom(
   id: id,
   variantId: variantId,
@@ -54,6 +55,7 @@ VariantUom variantUom({
   defaultSellingPrice: price,
   uomIsWhole: isWhole,
   inUse: inUse,
+  measurePerBase: measurePerBase,
 );
 
 ProductVariant variant({

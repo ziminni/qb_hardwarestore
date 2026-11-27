@@ -61,6 +61,9 @@ Flutter
 
 ## Phase 2 (next): any number of kilos
 
+Superseded by [sell by measure](2026-11-27-sell-by-measure-design.md), which also
+covers metres from a roll and uses 6 decimals. The notes below are the first sketch.
+
 Goal: sell 3 kg or 7.5 kg from a 40 kg bag. 1 kg is 0.025 bag, which does not fit
 the 2-decimal quantity columns.
 

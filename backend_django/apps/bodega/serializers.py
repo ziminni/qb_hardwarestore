@@ -3,6 +3,8 @@
 
 from rest_framework import serializers
 
+from common.serializer_fields import QtyDecimalField
+
 from apps.inventory.models import ProductVariant, StorageLocation
 from apps.users.photos import photo_url
 
@@ -65,7 +67,7 @@ class ReleaseLineInput(serializers.Serializer):
         queryset=ProductVariant.objects.select_related("product", "base_uom")
     )
     location = serializers.PrimaryKeyRelatedField(queryset=StorageLocation.objects.all())
-    qty = serializers.DecimalField(max_digits=12, decimal_places=4)
+    qty = QtyDecimalField(max_digits=18, decimal_places=6)
 
 
 class ReleaseInput(serializers.Serializer):
@@ -80,8 +82,8 @@ class BodegaDeliveryLineSerializer(serializers.ModelSerializer):
     label = serializers.SerializerMethodField()
     unit = serializers.CharField(source="variant.base_uom.code", read_only=True)
     is_whole = serializers.BooleanField(source="variant.base_uom.is_whole", read_only=True)
-    missing_qty = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True, allow_null=True
+    missing_qty = QtyDecimalField(
+        max_digits=18, decimal_places=6, read_only=True, allow_null=True
     )
     photo_url = serializers.SerializerMethodField()
 
@@ -147,8 +149,8 @@ class BodegaDeliverySerializer(serializers.ModelSerializer):
 
 class DeliveryLineInput(serializers.Serializer):
     line = serializers.IntegerField()
-    good_qty = serializers.DecimalField(max_digits=12, decimal_places=4)
-    damaged_qty = serializers.DecimalField(max_digits=12, decimal_places=4)
+    good_qty = QtyDecimalField(max_digits=18, decimal_places=6)
+    damaged_qty = QtyDecimalField(max_digits=18, decimal_places=6)
     remarks = serializers.CharField(max_length=255, allow_blank=True, required=False)
 
 

@@ -5,6 +5,7 @@ import 'package:client/core/format/format.dart';
 import 'package:client/data/models/catalogue_option.dart';
 import 'package:client/data/models/product.dart';
 import 'package:client/data/models/product_writes.dart';
+import 'package:client/data/models/variant_uom.dart';
 import 'package:client/shared/widgets/app_dialog.dart';
 import 'package:client/shared/widgets/error_banner.dart';
 import 'package:flutter/material.dart';
@@ -749,6 +750,10 @@ enum _AddUnitKind {
 
   /// Halves or quarters of ONE base unit, sold from an opened bag.
   parts,
+
+  /// Any weight or length of ONE base unit: kilos from a bag, metres from a
+  /// roll (sell by measure).
+  measure,
 }
 
 /// The parts a whole-counted unit can be sold in, with their wording.
@@ -762,6 +767,9 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
   final _draft = SellingUnitDraft();
   final _partPrice = TextEditingController();
   final _partCode = TextEditingController();
+  final _perBase = TextEditingController();
+  final _measurePrice = TextEditingController();
+  int? _measureUomId;
   _AddUnitKind _kind = _AddUnitKind.pack;
   int? _parts;
   late final List<UnitOfMeasure> _units = List<UnitOfMeasure>.of(widget.units);
@@ -796,7 +804,56 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
     _draft.dispose();
     _partPrice.dispose();
     _partCode.dispose();
+    _perBase.dispose();
+    _measurePrice.dispose();
     super.dispose();
+  }
+
+  /// The kilo or metre unit this variant already sells by, if any (the server
+  /// allows one).
+  VariantUom? get _existingMeasure {
+    for (final unit in widget.variant.sellingUoms) {
+      if (unit.isMeasured) return unit;
+    }
+    return null;
+  }
+
+  /// Units that can be any amount (KG, M, L), other than the base unit and
+  /// units this variant already sells.
+  List<UnitOfMeasure> get _measureUnits => [
+    for (final unit in _units)
+      if (!unit.isWhole &&
+          unit.id != widget.variant.baseUomId &&
+          !widget.variant.sellingUoms.any((u) => u.uomId == unit.id))
+        unit,
+  ];
+
+  bool get _measureBlocked =>
+      !widget.variant.baseUomIsWhole ||
+      _existingMeasure != null ||
+      _measureUnits.isEmpty;
+
+  Future<void> _saveMeasure() async {
+    if (!_formKey.currentState!.validate()) return;
+    final uomId = _measureUomId;
+    if (uomId == null) {
+      setState(() => _error = 'Choose kilo, metre or another unit.');
+      return;
+    }
+    final perBase = double.parse(_perBase.text.trim());
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    await _submit(
+      NewSellingUnit(
+        uomId: uomId,
+        uomCode: _codeFor(uomId),
+        conversionFactor: 1 / perBase,
+        measurePerBase: perBase,
+        sellingPrice: double.parse(_measurePrice.text.trim()),
+      ),
+    );
   }
 
   /// Parts this variant can still add (a part it already sells is left out).
@@ -847,6 +904,7 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
 
   Future<void> _save() async {
     if (_kind == _AddUnitKind.parts) return _savePart();
+    if (_kind == _AddUnitKind.measure) return _saveMeasure();
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _saving = true;
@@ -906,12 +964,18 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
                   icon: Icon(Icons.pie_chart_outline),
                   label: Text('Sell in parts'),
                 ),
+                ButtonSegment(
+                  value: _AddUnitKind.measure,
+                  icon: Icon(Icons.straighten),
+                  label: Text('By weight or length'),
+                ),
               ],
               selected: {_kind},
               onSelectionChanged: (values) => setState(() {
                 _kind = values.first;
                 _error = null;
                 _parts ??= _availableParts.firstOrNull;
+                _measureUomId ??= _measureUnits.firstOrNull?.id;
               }),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -920,6 +984,12 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
                   ? 'Same stock, another unit: a bigger pack (Box of 24) or a '
                         'smaller unit inside one. A different size or kind '
                         '(50 kg instead of 40 kg) is a new variant instead.'
+                  : _kind == _AddUnitKind.measure
+                  ? 'Sell any amount from an opened '
+                        '${widget.variant.baseUomCode}: 3 kg of cement, 2.5 m '
+                        'of wire. Stock stays counted in '
+                        '${widget.variant.baseUomCode} and reads like '
+                        '"9 ${widget.variant.baseUomCode} + 30 KG".'
                   : 'Sell an opened ${widget.variant.baseUomCode} in halves or '
                         'quarters. Stock stays counted in '
                         '${widget.variant.baseUomCode}: 9.75 means 9 sealed and '
@@ -927,7 +997,19 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: AppSpacing.md),
-            if (_kind == _AddUnitKind.parts)
+            if (_kind == _AddUnitKind.measure)
+              _MeasureUnitFields(
+                baseCode: widget.variant.baseUomCode,
+                baseIsWhole: widget.variant.baseUomIsWhole,
+                basePrice: _basePrice,
+                existing: _existingMeasure,
+                units: _measureUnits,
+                selected: _measureUomId,
+                perBase: _perBase,
+                price: _measurePrice,
+                onSelect: (id) => setState(() => _measureUomId = id),
+              )
+            else if (_kind == _AddUnitKind.parts)
               _PartUnitFields(
                 baseCode: widget.variant.baseUomCode,
                 baseIsWhole: widget.variant.baseUomIsWhole,
@@ -975,7 +1057,8 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
           onPressed: _saving ||
                   (_kind == _AddUnitKind.parts &&
                       (!widget.variant.baseUomIsWhole ||
-                          _availableParts.isEmpty))
+                          _availableParts.isEmpty)) ||
+                  (_kind == _AddUnitKind.measure && _measureBlocked)
               ? null
               : _save,
           child: Text(
@@ -985,6 +1068,170 @@ class _AddSellingUnitDialogState extends State<AddSellingUnitDialog> {
                 ? 'Add part'
                 : 'Add unit',
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The amount one base unit holds ("40" kg per bag): more than 1, at most two
+/// decimals, matching the server's refusals.
+String? measurePerBaseError(String? raw, {required String baseCode}) {
+  final text = raw?.trim() ?? '';
+  if (text.isEmpty) return 'Enter how much one $baseCode holds.';
+  final value = double.tryParse(text);
+  if (value == null || !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)) {
+    return 'Use a number with at most two decimal places.';
+  }
+  if (value <= 1) return 'One $baseCode must hold more than 1.';
+  return null;
+}
+
+/// "By weight or length": the kilo or metre unit, how many one base unit
+/// holds, and the loose price, with the proportional price beside it.
+class _MeasureUnitFields extends StatelessWidget {
+  const _MeasureUnitFields({
+    required this.baseCode,
+    required this.baseIsWhole,
+    required this.basePrice,
+    required this.existing,
+    required this.units,
+    required this.selected,
+    required this.perBase,
+    required this.price,
+    required this.onSelect,
+  });
+
+  final String baseCode;
+  final bool baseIsWhole;
+  final double? basePrice;
+  final VariantUom? existing;
+  final List<UnitOfMeasure> units;
+  final int? selected;
+  final TextEditingController perBase;
+  final TextEditingController price;
+  final ValueChanged<int> onSelect;
+
+  String get _selectedCode {
+    for (final unit in units) {
+      if (unit.id == selected) return unit.code;
+    }
+    return 'unit';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    if (!baseIsWhole) {
+      return Text(
+        'This item is already sold in any amount of $baseCode.',
+        key: const ValueKey('measure-fractional-note'),
+        style: textTheme.bodyMedium,
+      );
+    }
+    if (existing != null) {
+      return Text(
+        'This item already sells by the ${existing!.uomCode} '
+        '(${formatQuantity(existing!.measurePerBase!)} per $baseCode). Change '
+        'its price in the price list.',
+        key: const ValueKey('measure-already'),
+        style: textTheme.bodyMedium,
+      );
+    }
+    if (units.isEmpty) {
+      return Text(
+        'No unit that can be any amount (KG, M) is set up yet. Add one as a '
+        'pack or other unit first, marked as not whole.',
+        key: const ValueKey('measure-no-units'),
+        style: textTheme.bodyMedium,
+      );
+    }
+    final code = _selectedCode;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Wrap(
+          spacing: AppSpacing.sm,
+          children: [
+            for (final unit in units)
+              ChoiceChip(
+                key: ValueKey('measure-unit-${unit.id}'),
+                label: Text('${unit.code} (${unit.name})'),
+                selected: selected == unit.id,
+                onSelected: (_) => onSelect(unit.id),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextFormField(
+          key: const ValueKey('measure-per-base'),
+          controller: perBase,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+          ],
+          decoration: InputDecoration(
+            labelText: '$code in one $baseCode',
+            helperText: 'e.g. 40 kg in a bag, 150 m in a roll',
+          ),
+          validator: (raw) => measurePerBaseError(raw, baseCode: baseCode),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextFormField(
+          key: const ValueKey('measure-price'),
+          controller: price,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+          ],
+          decoration: InputDecoration(
+            labelText: 'Selling price per $code',
+            prefixText: '₱ ',
+          ),
+          validator: sellingUnitPriceError,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        ListenableBuilder(
+          listenable: Listenable.merge([perBase, price]),
+          builder: (context, _) {
+            final amount = double.tryParse(perBase.text.trim());
+            final value = double.tryParse(price.text.trim());
+            if (amount == null || amount <= 1 || basePrice == null) {
+              return const SizedBox.shrink();
+            }
+            final even = basePrice! / amount;
+            final lines = <String>[
+              'Proportional price: ${formatPeso(even)} per $code '
+                  '(${formatPeso(basePrice!)} ÷ ${formatQuantity(amount)}).',
+            ];
+            if (value != null) {
+              final extra = (value - even) * amount;
+              lines.add(
+                extra >= 0
+                    ? 'Selling a whole $baseCode by the $code earns '
+                          '${formatPeso(extra)} more.'
+                    : 'Selling a whole $baseCode by the $code earns '
+                          '${formatPeso(-extra)} less.',
+              );
+            }
+            return Container(
+              key: const ValueKey('measure-preview'),
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(AppRadii.small),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in lines)
+                    Text(line, style: textTheme.bodySmall),
+                ],
+              ),
+            );
+          },
         ),
       ],
     );

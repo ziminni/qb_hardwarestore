@@ -129,7 +129,9 @@ class ProductsRepository {
     // partial create, not a failed one, and the caller must be told exactly that.
     for (final unit in draft.extraSellingUnits) {
       try {
-        await service.createSellingUnit(unit.body(variantId));
+        // Sell loose on Add Product: halves/quarters and kilos/metres have
+        // their own endpoints, exactly as from Edit.
+        await _postSellingUnit(variantId, unit);
       } on ProductsServiceException catch (error) {
         throw PartialCreateException(
           created: created,
@@ -227,12 +229,18 @@ class ProductsRepository {
   /// refusal names the unit, and nothing else was written.
   Future<void> createSellingUnit(int variantId, NewSellingUnit unit) => _step(
     ProductWriteStep.sellingUnit,
-    () => unit.parts != null
-        ? service.addPartUnit(variantId, unit.partUnitBody())
-        : unit.unitsPerBase != null
-        ? service.addSmallerUnit(variantId, unit.smallerUnitBody())
-        : service.createSellingUnit(unit.body(variantId)),
+    () => _postSellingUnit(variantId, unit),
   );
+
+  /// The one place that picks the endpoint for a new selling unit.
+  Future<void> _postSellingUnit(int variantId, NewSellingUnit unit) =>
+      unit.measurePerBase != null
+      ? service.addMeasureUnit(variantId, unit.measureUnitBody())
+      : unit.parts != null
+      ? service.addPartUnit(variantId, unit.partUnitBody())
+      : unit.unitsPerBase != null
+      ? service.addSmallerUnit(variantId, unit.smallerUnitBody())
+      : service.createSellingUnit(unit.body(variantId));
 
   /// Removes one selling unit that nothing references (decision 16).
   ///

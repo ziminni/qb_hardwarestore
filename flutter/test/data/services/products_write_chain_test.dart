@@ -348,6 +348,58 @@ void main() {
   );
 
   group('createProductChain with extra selling units', () {
+    test('Sell loose: a quarter and kilos go to their own endpoints', () async {
+      useAdapter({
+        '/api/v1/products/': {'id': 11},
+        '/api/v1/variants/': {'id': 22},
+        '/api/v1/variant-uoms/': {'id': 33},
+        '/api/v1/variants/22/add-part-unit/': {'id': 22},
+        '/api/v1/variants/22/add-measure-unit/': {'id': 22},
+      });
+
+      await repository.createProductChain(
+        const NewProductDraft(
+          categoryId: 4,
+          brandId: 2,
+          baseName: 'Portland Cement',
+          description: '',
+          imageUrl: '',
+          variantName: '40kg',
+          baseUomId: 7,
+          minStockThreshold: 5,
+          maxStockLevel: 0,
+          sellingPrice: 260,
+          extraSellingUnits: [
+            NewSellingUnit(
+              uomId: 0,
+              uomCode: 'QTR',
+              conversionFactor: 0.25,
+              parts: 4,
+              sellingPrice: 70,
+            ),
+            NewSellingUnit(
+              uomId: 5,
+              uomCode: 'KG',
+              conversionFactor: 0.025,
+              measurePerBase: 40,
+              sellingPrice: 7.5,
+            ),
+          ],
+        ),
+      );
+
+      expect(adapter.paths.sublist(3), [
+        '/api/v1/variants/22/add-part-unit/',
+        '/api/v1/variants/22/add-measure-unit/',
+      ]);
+      expect(adapter.bodiesSent[3], containsPair('parts', 4));
+      expect(adapter.bodiesSent[4], {
+        'uom_id': 5,
+        'measure_per_base': '40',
+        'default_selling_price': '7.50',
+      });
+    });
+
     test('posts each extra unit AFTER the base unit, in form order', () async {
       useAdapter({
         '/api/v1/products/': {'id': 11},
