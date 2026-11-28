@@ -73,7 +73,10 @@ class _Repository extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     releases++;
     return const ReleaseResult(
       transactionId: 42,
@@ -167,9 +170,9 @@ void main() {
       expect(vm.verification?.token, 'selected-token');
       expect(find.textContaining('Cement 40kg'), findsWidgets);
       await tester.ensureVisible(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
       );
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.tap(find.byKey(const ValueKey('release-confirm')));
       await tester.pumpAndSettle();
       expect(repo.releases, 1);
       await tester.ensureVisible(find.text('Print receipt'));

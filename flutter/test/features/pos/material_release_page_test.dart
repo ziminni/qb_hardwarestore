@@ -48,7 +48,10 @@ class _StubRequisitions extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     released.add(token);
     return const ReleaseResult(
       transactionId: 42,
@@ -88,7 +91,7 @@ void main() {
       await _pump(tester, vm);
 
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsNothing,
       );
       expect(repo.released, isEmpty);
@@ -111,7 +114,7 @@ void main() {
         expect(find.textContaining('Dela Cruz Construction'), findsWidgets);
         expect(find.textContaining('40kg'), findsWidgets);
         expect(
-          find.widgetWithText(FilledButton, 'Release materials'),
+          find.byKey(const ValueKey('release-confirm')),
           findsOneWidget,
         );
       },
@@ -129,7 +132,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.tap(find.byKey(const ValueKey('release-confirm')));
       await tester.pumpAndSettle();
 
       expect(repo.released, ['a-token']);
@@ -137,7 +140,7 @@ void main() {
       expect(find.textContaining('2,700'), findsWidgets);
       // A released token cannot be released again, so the action must be gone.
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsNothing,
       );
     });
@@ -152,7 +155,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.tap(find.byKey(const ValueKey('release-confirm')));
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(
@@ -171,7 +174,10 @@ void main() {
       expect(vm.result, isNull);
       expect(find.text('REQ-20260925-0003'), findsNothing);
       expect(find.textContaining('TXN-20261017-0042'), findsNothing);
-      expect(find.text('Check what to hand over, then release'), findsOneWidget);
+      expect(
+        find.textContaining('Choose a request on the left'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Enter in the token field verifies the token', (tester) async {
@@ -272,36 +278,5 @@ void main() {
         );
       },
     );
-
-    testWidgets('the three steps are shown in order, narrow first', (
-      tester,
-    ) async {
-      final vm = MaterialReleaseViewmodel(repository: _StubRequisitions());
-
-      await _pump(tester, vm, size: const Size(760, 900));
-
-      const titles = [
-        'Choose the request to release',
-        'Check what to hand over, then release',
-        'Release receipt',
-      ];
-      for (final title in titles) {
-        expect(
-          find.text(title),
-          findsOneWidget,
-          reason: 'the clerk must see step "$title" before doing it',
-        );
-      }
-
-      final tops = [
-        for (final title in titles) tester.getTopLeft(find.text(title)).dy,
-      ];
-      expect(
-        tops[0] < tops[1] && tops[1] < tops[2],
-        isTrue,
-        reason:
-            'verify, then review, then the receipt reads top to bottom: $tops',
-      );
-    });
   });
 }

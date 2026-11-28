@@ -46,7 +46,10 @@ class _StubRequisitions extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     return ReleaseResult(
       transactionId: 42,
       transactionNo: 'TXN-20261114-0042',
@@ -80,7 +83,7 @@ Future<void> _pumpAndRelease(
   await tester.pump();
   await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
   await tester.pumpAndSettle();
-  await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+  await tester.tap(find.byKey(const ValueKey('release-confirm')));
   await tester.pumpAndSettle();
 }
 

@@ -55,7 +55,10 @@ class _StubRequisitions extends RequisitionRepository {
       );
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     if (failRelease != null) throw failRelease!;
     released.add(token);
     return const ReleaseResult(
@@ -175,7 +178,7 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.tap(
-          find.widgetWithText(FilledButton, 'Release materials'),
+          find.byKey(const ValueKey('release-confirm')),
         );
         await tester.pumpAndSettle();
 
@@ -218,7 +221,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.tap(find.byKey(const ValueKey('release-confirm')));
       await tester.pumpAndSettle();
 
       expect(
@@ -244,7 +247,7 @@ void main() {
       await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Verify'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Release materials'));
+      await tester.tap(find.byKey(const ValueKey('release-confirm')));
       await tester.pumpAndSettle();
 
       expect(find.text('Token has already been used.'), findsOneWidget);

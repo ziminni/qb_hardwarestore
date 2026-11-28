@@ -145,6 +145,23 @@ class TokenVerifySerializer(serializers.Serializer):
         help_text='UUID of the MaterialToken to verify.')
 
 
+class ReleaseQuantitySerializer(serializers.Serializer):
+    item = serializers.IntegerField(min_value=1)
+    # Six places accepted here so a 3-decimal amount reaches the service and is refused
+    # with the shared `QTY_TOO_PRECISE` code, not a field-shaped error.
+    qty = serializers.DecimalField(max_digits=18, decimal_places=6, min_value=0)
+
+
+class MaterialReleaseSerializer(TokenVerifySerializer):
+    """`{token, quantities?}`: the cashier's Give now per line (2026-11-27).
+
+    A line left out of `quantities` gives its full releasable, so a till that sends
+    only the token releases exactly as before.
+    """
+
+    quantities = ReleaseQuantitySerializer(many=True, required=False)
+
+
 class StrictSerializer(serializers.Serializer):
     """A serializer that refuses the keys it does not accept.
 

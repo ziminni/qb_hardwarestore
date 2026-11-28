@@ -64,7 +64,73 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   /// remainder: the token stays valid and the project comes back for it. A Not available
   /// line is not one of them: nobody will ever hand it over (decision 13).
   bool get leavesLinesOpen =>
-      _eligibleLines.any((line) => line.outstanding > 0);
+      _eligibleLines.any((line) => outstandingAfter(line) > 0);
+
+  /// The cashier's Give now per line id (2026-11-27 design). Starts at each line's
+  /// releasable on every verify; a line that cannot go out has none.
+  Map<int, double> _giveNow = const {};
+
+  /// What this line hands over on the next release. 0 for a line that cannot go.
+  double giveNow(int itemId) => _giveNow[itemId] ?? 0;
+
+  VerifiedRequisitionItem? _line(int itemId) {
+    for (final line in releasableLines) {
+      if (line.id == itemId) return line;
+    }
+    return null;
+  }
+
+  /// Sets a line's Give now, clamped to `0 … releasable`. A whole unit (a bag) is
+  /// floored to a whole number; a measured one keeps at most 2 decimals, the server's
+  /// own limit, so what the screen shows is exactly what is sent.
+  void setGiveNow(int itemId, double amount) {
+    final line = _line(itemId);
+    if (line == null || isBusy || result != null) return;
+    var value = amount.isNaN ? 0.0 : amount;
+    if (value < 0) value = 0;
+    if (value > line.releasable) value = line.releasable;
+    value = line.isWhole
+        ? (value + 1e-9).floorToDouble()
+        : ((value * 100) + 1e-6).floorToDouble() / 100;
+    _giveNow = {..._giveNow, itemId: value};
+    notifyListeners();
+  }
+
+  /// True when the cashier moved this line away from what can go out.
+  bool giveNowChanged(int itemId) {
+    final line = _line(itemId);
+    return line != null && (giveNow(itemId) - line.releasable).abs() > 1e-9;
+  }
+
+  /// What stays owed on this line after the release, with the chosen amount.
+  double outstandingAfter(VerifiedRequisitionItem line) {
+    if (line.available == false) return 0;
+    final left = line.remaining - giveNow(line.id);
+    return left > 0 ? left : 0;
+  }
+
+  /// The lines that hand something over with the current amounts.
+  Iterable<VerifiedRequisitionItem> get givingLines =>
+      releasableLines.where((line) => giveNow(line.id) > 0);
+
+  /// Price × Give now, summed: the screen's estimate. The receipt shows the server's.
+  double get todayTotal => releasableLines.fold(
+    0.0,
+    (sum, line) => sum + line.unitPrice * giveNow(line.id),
+  );
+
+  /// What this release hands over, line by line, for the summary.
+  List<({String name, double qty, String unit})> get givingToday => [
+    for (final line in givingLines)
+      (name: line.variantName, qty: giveNow(line.id), unit: line.unit),
+  ];
+
+  /// What a later visit still has to collect, after this release.
+  List<({String name, double qty, String unit})> get stillOpenAfter => [
+    for (final line in _eligibleLines)
+      if (outstandingAfter(line) > 0)
+        (name: line.variantName, qty: outstandingAfter(line), unit: line.unit),
+  ];
 
   /// Why the confirm press is not offered, in the clerk's words. Null when it is.
   ///
@@ -73,7 +139,10 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
   /// "come back after a delivery", a finished token means "this paper is done". The
   /// fallback is conservative on purpose: an unanswered line still counts as owed.
   String? get confirmBlockedReason {
-    if (verification == null || hasReleasable) return null;
+    if (verification == null) return null;
+    if (hasReleasable) {
+      return givingLines.isEmpty ? 'Set at least one Give now above 0.' : null;
+    }
     final eligible = _eligibleLines;
     if (eligible.isNotEmpty &&
         eligible.every((line) => line.availability == LineAvailability.done)) {
@@ -149,6 +218,9 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     notifyListeners();
     try {
       verification = await lookup();
+      _giveNow = {
+        for (final line in releasableLines) line.id: line.releasable,
+      };
     } on RequisitionServiceException catch (failure) {
       error = failure.message;
     } finally {
@@ -163,15 +235,32 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     if (isBusy || token == null || result != null) return false;
     // Decision 05: nothing releasable writes nothing at all on the server, so the press
     // is refused HERE, where the clerk can still be told why.
-    if (!hasReleasable) return false;
+    if (!hasReleasable || givingLines.isEmpty) return false;
 
     error = null;
     needsOpenShift = false;
     isBusy = true;
     notifyListeners();
     try {
-      result = await _repository.release(token);
+      result = await _repository.release(
+        token,
+        quantities: {
+          for (final line in releasableLines) line.id: giveNow(line.id),
+        },
+      );
     } on RequisitionServiceException catch (failure) {
+      if (failure.code == 'RELEASE_QTY_TOO_HIGH') {
+        // Stock moved since the screen loaded: reload the request so the limits are
+        // the shelf's current ones, then say why the press did nothing.
+        final requisitionId = verification?.requisitionId;
+        isBusy = false;
+        if (requisitionId != null) await verifyRequest(requisitionId);
+        error =
+            'Stock changed since this request was opened. The amounts were '
+            'updated — check them and release again.';
+        notifyListeners();
+        return false;
+      }
       error = failure.message;
       // Only this refusal has an action attached; every other one is read and
       // reported, so a Retry of the same press is the honest next step.
@@ -198,6 +287,7 @@ class MaterialReleaseViewmodel extends ChangeNotifier {
     needsOpenShift = false;
     verification = null;
     result = null;
+    _giveNow = const {};
     notifyListeners();
   }
 }

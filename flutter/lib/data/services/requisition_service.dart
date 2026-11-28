@@ -275,8 +275,23 @@ class RequisitionService {
   /// This is the only irreversible action in Phase 5: it FIFO-deducts stock, creates a sale and
   /// posts a receivable. The server re-checks the token under `select_for_update`, so a token
   /// used twice is refused rather than double-released.
-  Future<ReleaseResult> release(String token) async {
-    final body = await _post(releasePath, body: {'token': token});
+  /// [quantities] is the cashier's Give now per line id; a line left out gives its
+  /// full releasable on the server, so null releases exactly as before.
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
+    final body = await _post(
+      releasePath,
+      body: {
+        'token': token,
+        if (quantities != null)
+          'quantities': [
+            for (final entry in quantities.entries)
+              {'item': entry.key, 'qty': entry.value.toStringAsFixed(2)},
+          ],
+      },
+    );
     return _decode(ReleaseResult.fromJson, body);
   }
 

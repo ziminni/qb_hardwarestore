@@ -71,7 +71,10 @@ class _StubRequisitions extends RequisitionRepository {
   }
 
   @override
-  Future<ReleaseResult> release(String token) async {
+  Future<ReleaseResult> release(
+    String token, {
+    Map<int, double>? quantities,
+  }) async {
     if (failRelease case final failure?) throw failure;
     released.add(token);
     return releaseResult ?? _released();
@@ -158,7 +161,7 @@ Future<void> _scan(WidgetTester tester, String token) async {
 }
 
 Future<void> _pressRelease(WidgetTester tester) async {
-  final button = find.widgetWithText(FilledButton, 'Release materials');
+  final button = find.byKey(const ValueKey('release-confirm'));
   await tester.ensureVisible(button);
   await tester.pumpAndSettle();
   await tester.tap(button);
@@ -174,15 +177,15 @@ void main() {
       await _pump(tester, repo);
       await _scan(tester, 'b1e0c4d2-token-0117');
 
-      expect(find.text('Full'), findsOneWidget);
-      expect(find.text('Short'), findsOneWidget);
+      expect(find.text('Enough stock'), findsOneWidget);
+      expect(find.text('Short: up to 4 now'), findsOneWidget);
       expect(
-        find.text('4 of 10 available'),
+        find.text('10 still to give · up to 4 can go out now'),
         findsOneWidget,
         reason: 'a short line is only honest with the quantity beside it',
       );
-      expect(find.text('Unavailable'), findsOneWidget);
-      expect(find.text('Already released'), findsOneWidget);
+      expect(find.text('Out of stock'), findsOneWidget);
+      expect(find.text('Already given'), findsOneWidget);
     });
 
     testWidgets('the confirm press names what goes now and what stays open', (
@@ -192,9 +195,11 @@ void main() {
       await _pump(tester, repo);
       await _scan(tester, 'b1e0c4d2-token-0117');
 
+      expect(find.text('Release 2 items'), findsOneWidget);
       expect(
         find.text(
-          'Releases 2 of 4 lines now. The rest stays open on this token.',
+          'Still open after this: 6 Deformed Steel Bar 10 mm x 6 m Grade 60, '
+          '24 Marine Plywood 3/4 in. The same slip works next visit.',
         ),
         findsOneWidget,
         reason:
@@ -233,7 +238,7 @@ void main() {
         reason: 'the store refused this line; the shelf was not merely empty',
       );
       expect(
-        find.text('Unavailable'),
+        find.text('Out of stock'),
         findsNothing,
         reason: 'the two words are different instructions to the clerk',
       );
@@ -267,9 +272,11 @@ void main() {
       await _pump(tester, repo);
       await _scan(tester, 'b1e0c4d2-token-0117');
 
+      expect(find.text('Release 2 items'), findsOneWidget);
       expect(
         find.text(
-          'Releases 2 of 2 lines now. The rest stays open on this token.',
+          'Still open after this: 6 Portland Cement 40 kg. '
+          'The same slip works next visit.',
         ),
         findsOneWidget,
         reason:
@@ -299,7 +306,7 @@ void main() {
       await _scan(tester, 'b1e0c4d2-token-0117');
 
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsNothing,
         reason: 'a press that can only fail is not offered at all',
       );
@@ -330,7 +337,7 @@ void main() {
 
       expect(find.textContaining('already released'), findsOneWidget);
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsNothing,
       );
     });
@@ -513,15 +520,15 @@ void main() {
       await _scan(tester, 'b1e0c4d2-token-0117');
 
       expect(repo.verifyCalls, 2);
-      expect(find.text('Already released'), findsOneWidget);
-      expect(find.text('4 of 10 available'), findsOneWidget);
+      expect(find.text('Already given'), findsOneWidget);
+      expect(find.text('Short: up to 4 now'), findsOneWidget);
       expect(
         find.textContaining('TXN-20261030-0184'),
         findsNothing,
         reason: 'the first scan receipt must not sit over the second scan',
       );
       expect(
-        find.widgetWithText(FilledButton, 'Release materials'),
+        find.byKey(const ValueKey('release-confirm')),
         findsOneWidget,
         reason: 'the rest is still collectable on this token',
       );
